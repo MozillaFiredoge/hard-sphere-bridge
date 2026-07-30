@@ -145,6 +145,19 @@ public:
         std::size_t maximum_steps = 100'000,
         double tolerance = 1.0e-12
     );
+    [[nodiscard]] AdaptiveParallelWindowRunResult
+    advance_adaptive_parallel_windows(
+        const UniformGrid& grid,
+        double duration,
+        double maximum_window,
+        double minimum_window,
+        double diameter,
+        std::size_t maximum_attempts = 1'000'000,
+        double tolerance = 1.0e-12,
+        std::size_t successful_steps_before_growth = 4,
+        double growth_factor = 2.0,
+        std::size_t exact_recovery_batch_limit = 0
+    );
 
     [[nodiscard]] std::vector<Particle> download_particles() const;
     [[nodiscard]] CellListSnapshot download_cell_list() const;

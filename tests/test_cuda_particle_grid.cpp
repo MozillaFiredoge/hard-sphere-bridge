@@ -644,6 +644,104 @@ int main() {
                 host_result.stop_reason == cuda_result.stop_reason &&
                 gap_matches;
         };
+        const auto adaptive_run_results_match = [](
+            const particles::AdaptiveParallelWindowRunResult& host_result,
+            const particles::AdaptiveParallelWindowRunResult& cuda_result
+        ) {
+            const auto scalar_matches = [](double left, double right) {
+                return
+                    (std::isinf(left) && std::isinf(right)) ||
+                    std::abs(left - right) <= 1.0e-11;
+            };
+            return
+                scalar_matches(
+                    host_result.requested_time,
+                    cuda_result.requested_time
+                ) &&
+                scalar_matches(
+                    host_result.advanced_time,
+                    cuda_result.advanced_time
+                ) &&
+                scalar_matches(
+                    host_result.maximum_window,
+                    cuda_result.maximum_window
+                ) &&
+                scalar_matches(
+                    host_result.minimum_window,
+                    cuda_result.minimum_window
+                ) &&
+                scalar_matches(
+                    host_result.growth_factor,
+                    cuda_result.growth_factor
+                ) &&
+                scalar_matches(
+                    host_result.minimum_attempted_window,
+                    cuda_result.minimum_attempted_window
+                ) &&
+                scalar_matches(
+                    host_result.minimum_accepted_window,
+                    cuda_result.minimum_accepted_window
+                ) &&
+                host_result.accepted_step_count ==
+                    cuda_result.accepted_step_count &&
+                host_result.attempt_count ==
+                    cuda_result.attempt_count &&
+                host_result.rollback_count ==
+                    cuda_result.rollback_count &&
+                host_result.maximum_refinement_depth ==
+                    cuda_result.maximum_refinement_depth &&
+                host_result.successful_steps_before_growth ==
+                    cuda_result.successful_steps_before_growth &&
+                host_result.window_growth_count ==
+                    cuda_result.window_growth_count &&
+                host_result.candidate_rebuild_count ==
+                    cuda_result.candidate_rebuild_count &&
+                host_result.horizon_limited_attempt_count ==
+                    cuda_result.horizon_limited_attempt_count &&
+                host_result.candidate_pair_count ==
+                    cuda_result.candidate_pair_count &&
+                host_result.detected_collision_count ==
+                    cuda_result.detected_collision_count &&
+                host_result.accepted_collision_count ==
+                    cuda_result.accepted_collision_count &&
+                host_result.contended_collision_count ==
+                    cuda_result.contended_collision_count &&
+                host_result.rejected_candidate_pair_count ==
+                    cuda_result.rejected_candidate_pair_count &&
+                host_result.rejected_detected_collision_count ==
+                    cuda_result.rejected_detected_collision_count &&
+                host_result.rejected_accepted_collision_count ==
+                    cuda_result.rejected_accepted_collision_count &&
+                host_result.rejected_contended_collision_count ==
+                    cuda_result.rejected_contended_collision_count &&
+                host_result.rejected_overlap_pair_count ==
+                    cuda_result.rejected_overlap_pair_count &&
+                host_result.exact_recovery_count ==
+                    cuda_result.exact_recovery_count &&
+                host_result.exact_recovery_batch_count ==
+                    cuda_result.exact_recovery_batch_count &&
+                host_result.exact_recovery_candidate_rebuild_count ==
+                    cuda_result.exact_recovery_candidate_rebuild_count &&
+                host_result.exact_recovery_collision_count ==
+                    cuda_result.exact_recovery_collision_count &&
+                host_result.
+                    exact_recovery_serialized_conflict_resolution_count ==
+                    cuda_result.
+                        exact_recovery_serialized_conflict_resolution_count &&
+                host_result.exact_recovery_reflected_particle_count ==
+                    cuda_result.exact_recovery_reflected_particle_count &&
+                host_result.exact_recovery_reflected_axis_count ==
+                    cuda_result.exact_recovery_reflected_axis_count &&
+                scalar_matches(
+                    host_result.minimum_surface_gap,
+                    cuda_result.minimum_surface_gap
+                ) &&
+                scalar_matches(
+                    host_result.minimum_rejected_surface_gap,
+                    cuda_result.minimum_rejected_surface_gap
+                ) &&
+                host_result.stop_reason == cuda_result.stop_reason;
+        };
 
         const particles::DomainConfig corner_domain{
             .extent = {4.0, 4.0, 4.0},
@@ -972,6 +1070,131 @@ int main() {
             return 1;
         }
 
+        const particles::DomainConfig reflecting_parallel_domain{
+            .extent = {4.0, 2.0, 2.0},
+            .boundary = {
+                particles::BoundaryKind::reflecting,
+                particles::BoundaryKind::periodic,
+                particles::BoundaryKind::periodic,
+            },
+        };
+        const particles::UniformGrid reflecting_parallel_grid =
+            particles::make_uniform_grid(
+                reflecting_parallel_domain,
+                1.0
+            );
+        const std::vector<particles::Particle>
+            reflecting_parallel_initial{
+                particles::Particle{
+                    .position = {0.35, 1.0, 1.0},
+                    .velocity = {-1.0, 0.0, 0.0},
+                },
+            };
+        std::vector<particles::Particle> reflecting_parallel_host =
+            reflecting_parallel_initial;
+        const particles::ParallelWindowRunResult
+            reflecting_parallel_host_result =
+                particles::advance_host_parallel_windows(
+                    reflecting_parallel_host,
+                    reflecting_parallel_grid,
+                    0.2,
+                    0.2,
+                    0.5
+                );
+        particles::cuda::ParticleGrid reflecting_parallel_device{
+            reflecting_parallel_initial.size()
+        };
+        reflecting_parallel_device.upload(
+            reflecting_parallel_initial
+        );
+        const particles::ParallelWindowRunResult
+            reflecting_parallel_cuda_result =
+                reflecting_parallel_device.advance_parallel_windows(
+                    reflecting_parallel_grid,
+                    0.2,
+                    0.2,
+                    0.5
+                );
+        const std::vector<particles::Particle>
+            reflecting_parallel_cuda =
+                reflecting_parallel_device.download_particles();
+        if (
+            !parallel_run_results_match(
+                reflecting_parallel_host_result,
+                reflecting_parallel_cuda_result
+            ) ||
+            !states_match(
+                reflecting_parallel_host,
+                reflecting_parallel_cuda
+            )
+        ) {
+            std::cerr
+                << "CUDA reflecting parallel window differs from CPU.\n";
+            return 1;
+        }
+
+        const particles::UniformGrid
+            reflecting_collision_grid =
+                particles::make_uniform_grid(
+                    reflecting_parallel_domain,
+                    2.0
+                );
+        const std::vector<particles::Particle>
+            reflecting_collision_initial{
+                particles::Particle{
+                    .position = {0.6, 1.0, 1.0},
+                    .velocity = {0.0, 0.0, 0.0},
+                },
+                particles::Particle{
+                    .position = {1.4, 1.0, 1.0},
+                    .velocity = {-2.0, 0.0, 0.0},
+                },
+            };
+        std::vector<particles::Particle>
+            reflecting_collision_host =
+                reflecting_collision_initial;
+        const particles::ParallelWindowStepResult
+            reflecting_collision_host_result =
+                particles::advance_host_parallel_window_step(
+                    reflecting_collision_host,
+                    reflecting_collision_grid,
+                    0.375,
+                    0.5
+                );
+        particles::cuda::ParticleGrid
+            reflecting_collision_device{
+                reflecting_collision_initial.size()
+            };
+        reflecting_collision_device.upload(
+            reflecting_collision_initial
+        );
+        const particles::ParallelWindowStepResult
+            reflecting_collision_cuda_result =
+                reflecting_collision_device.
+                    advance_parallel_window_step(
+                        reflecting_collision_grid,
+                        0.375,
+                        0.5
+                    );
+        const std::vector<particles::Particle>
+            reflecting_collision_cuda =
+                reflecting_collision_device.download_particles();
+        if (
+            !parallel_step_results_match(
+                reflecting_collision_host_result,
+                reflecting_collision_cuda_result
+            ) ||
+            !states_match(
+                reflecting_collision_host,
+                reflecting_collision_cuda
+            )
+        ) {
+            std::cerr
+                << "CUDA collision-then-reflection window differs "
+                   "from CPU.\n";
+            return 1;
+        }
+
         const std::vector<particles::Particle> parallel_chain_initial{
             particles::Particle{
                 .position = {1.0, 2.0, 2.0},
@@ -1073,10 +1296,175 @@ int main() {
             return 1;
         }
 
+        const std::vector<particles::Particle> causal_chain_initial{
+            particles::Particle{
+                .position = {1.0, 2.0, 2.0},
+                .velocity = {1.0, 0.0, 0.0},
+            },
+            particles::Particle{
+                .position = {2.2, 2.0, 2.0},
+                .velocity = {0.0, 0.0, 0.0},
+            },
+            particles::Particle{
+                .position = {3.4, 2.0, 2.0},
+                .velocity = {0.0, 0.0, 0.0},
+            },
+        };
+        for (const double maximum_window : {0.5, 0.25, 0.125}) {
+            std::vector<particles::Particle> causal_chain_host =
+                causal_chain_initial;
+            const particles::ParallelWindowRunResult
+                causal_chain_host_result =
+                    particles::advance_host_parallel_windows(
+                        causal_chain_host,
+                        parallel_grid,
+                        0.8,
+                        maximum_window,
+                        1.0
+                    );
+            particles::cuda::ParticleGrid causal_chain_device{
+                causal_chain_initial.size()
+            };
+            causal_chain_device.upload(causal_chain_initial);
+            const particles::ParallelWindowRunResult
+                causal_chain_cuda_result =
+                    causal_chain_device.advance_parallel_windows(
+                        parallel_grid,
+                        0.8,
+                        maximum_window,
+                        1.0
+                    );
+            const std::vector<particles::Particle> causal_chain_cuda =
+                causal_chain_device.download_particles();
+            if (
+                !parallel_run_results_match(
+                    causal_chain_host_result,
+                    causal_chain_cuda_result
+                ) ||
+                !states_match(
+                    causal_chain_host,
+                    causal_chain_cuda
+                )
+            ) {
+                std::cerr
+                    << "CUDA causal-chain convergence differs from CPU "
+                    << "at maximum window " << maximum_window << ".\n";
+                return 1;
+            }
+        }
+
+        std::vector<particles::Particle> adaptive_chain_host =
+            causal_chain_initial;
+        const particles::AdaptiveParallelWindowRunResult
+            adaptive_chain_host_result =
+                particles::advance_host_adaptive_parallel_windows(
+                    adaptive_chain_host,
+                    parallel_grid,
+                    0.8,
+                    0.5,
+                    0.03125,
+                    1.0,
+                    1'000'000,
+                    1.0e-12,
+                    2,
+                    2.0
+                );
+        particles::cuda::ParticleGrid adaptive_chain_device{
+            causal_chain_initial.size()
+        };
+        adaptive_chain_device.upload(causal_chain_initial);
+        const particles::AdaptiveParallelWindowRunResult
+            adaptive_chain_cuda_result =
+                adaptive_chain_device.advance_adaptive_parallel_windows(
+                    parallel_grid,
+                    0.8,
+                    0.5,
+                    0.03125,
+                    1.0,
+                    1'000'000,
+                    1.0e-12,
+                    2,
+                    2.0
+                );
+        const std::vector<particles::Particle> adaptive_chain_cuda =
+            adaptive_chain_device.download_particles();
+        if (
+            !adaptive_run_results_match(
+                adaptive_chain_host_result,
+                adaptive_chain_cuda_result
+            ) ||
+            !states_match(
+                adaptive_chain_host,
+                adaptive_chain_cuda
+            )
+        ) {
+            std::cerr
+                << "CUDA adaptive causal-chain rollback differs from "
+                   "CPU.\n";
+            return 1;
+        }
+
+        std::vector<particles::Particle> recovered_chain_host =
+            causal_chain_initial;
+        const particles::AdaptiveParallelWindowRunResult
+            recovered_chain_host_result =
+                particles::advance_host_adaptive_parallel_windows(
+                    recovered_chain_host,
+                    parallel_grid,
+                    0.8,
+                    0.5,
+                    0.5,
+                    1.0,
+                    1'000'000,
+                    1.0e-12,
+                    2,
+                    2.0,
+                    100
+                );
+        particles::cuda::ParticleGrid recovered_chain_device{
+            causal_chain_initial.size()
+        };
+        recovered_chain_device.upload(causal_chain_initial);
+        const particles::AdaptiveParallelWindowRunResult
+            recovered_chain_cuda_result =
+                recovered_chain_device.
+                    advance_adaptive_parallel_windows(
+                        parallel_grid,
+                        0.8,
+                        0.5,
+                        0.5,
+                        1.0,
+                        1'000'000,
+                        1.0e-12,
+                        2,
+                        2.0,
+                        100
+                    );
+        const std::vector<particles::Particle>
+            recovered_chain_cuda =
+                recovered_chain_device.download_particles();
+        if (
+            !adaptive_run_results_match(
+                recovered_chain_host_result,
+                recovered_chain_cuda_result
+            ) ||
+            !states_match(
+                recovered_chain_host,
+                recovered_chain_cuda
+            ) ||
+            recovered_chain_cuda_result.exact_recovery_count != 1
+        ) {
+            std::cerr
+                << "CUDA exact recovery from minimum-window exhaustion "
+                   "differs from CPU.\n";
+            return 1;
+        }
+
         std::cout
             << "CUDA SoA, free flight, cell list, and candidate pairs "
                "match the CPU reference; event timing and conflict analysis "
-               "also match; exact and approximate time windows match too.\n";
+               "also match; fixed and adaptive approximate windows match "
+               "too.\n";
         return 0;
     } catch (const std::exception& exception) {
         std::cerr << "CUDA particle-grid test failed: "

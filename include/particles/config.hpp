@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "particles/vec3.hpp"
 
@@ -31,8 +33,11 @@ struct MacroscopicState {
 };
 
 struct DiagnosticsConfig {
+    std::size_t microscopic_particle_samples{2'048};
     std::size_t phase_space_x_bins{128};
     std::size_t phase_space_vx_bins{128};
+    double phase_space_velocity_x_min{-4.0};
+    double phase_space_velocity_x_max{4.0};
     std::size_t macroscopic_x_slabs{256};
 };
 
@@ -48,6 +53,100 @@ struct WindowConvergenceConfig {
     double maximum_window{0.05};
     std::size_t refinement_levels{3};
     std::size_t maximum_steps{100'000};
+};
+
+struct AdaptiveWindowConfig {
+    double minimum_window{1.0e-7};
+    std::size_t maximum_attempts{1'000'000};
+    std::size_t successful_steps_before_growth{4};
+    double growth_factor{2.0};
+};
+
+struct ShockTubeEvolutionConfig {
+    double end_time{0.2};
+    double frame_interval{0.02};
+    double cell_width_factor{2.0};
+    double maximum_window{5.0e-4};
+    std::size_t exact_recovery_batch_limit{1'000};
+    AdaptiveWindowConfig adaptive_window{
+        .minimum_window = 1.0e-7,
+        .maximum_attempts = 2'000'000,
+        .successful_steps_before_growth = 4,
+        .growth_factor = 2.0,
+    };
+};
+
+struct ParticleStateConfig {
+    Vec3 position{};
+    Vec3 velocity{};
+};
+
+struct ParallelWindowScenarioConfig {
+    std::uint32_t schema_version{1};
+    std::string scenario{"causal_chain"};
+    double particle_mass{1.0};
+    DomainConfig domain{
+        .extent = {12.0, 4.0, 4.0},
+        .boundary = {
+            BoundaryKind::periodic,
+            BoundaryKind::periodic,
+            BoundaryKind::periodic,
+        },
+    };
+    double particle_diameter{1.0};
+    std::vector<ParticleStateConfig> particles;
+    WindowConvergenceConfig window_convergence{
+        .duration = 0.8,
+        .maximum_window = 0.5,
+        .refinement_levels = 3,
+        .maximum_steps = 100,
+    };
+};
+
+struct ParallelWindowStressConfig {
+    std::uint32_t schema_version{1};
+    std::uint64_t base_random_seed{20260730};
+    std::size_t seed_count{4};
+    double particle_mass{1.0};
+    double boltzmann_constant{1.0};
+    DomainConfig domain{
+        .extent = {6.0, 6.0, 6.0},
+        .boundary = {
+            BoundaryKind::periodic,
+            BoundaryKind::periodic,
+            BoundaryKind::periodic,
+        },
+    };
+    std::size_t particle_count{256};
+    double particle_diameter{0.5};
+    double temperature{1.0};
+    Vec3 bulk_velocity{};
+    WindowConvergenceConfig window_convergence{
+        .duration = 0.5,
+        .maximum_window = 0.06,
+        .refinement_levels = 8,
+        .maximum_steps = 100'000,
+    };
+    AdaptiveWindowConfig adaptive_window{};
+};
+
+struct CudaScalingConfig {
+    std::uint32_t schema_version{1};
+    std::uint64_t random_seed{20260730};
+    double particle_mass{1.0};
+    double boltzmann_constant{1.0};
+    std::size_t base_particle_count{1U << 10U};
+    std::size_t level_count{11};
+    double number_density{32.0 / 27.0};
+    double particle_diameter{0.5};
+    double temperature{1.0};
+    Vec3 bulk_velocity{};
+    double cell_width_factor{1.25};
+    double warmup_duration{0.002};
+    double measured_duration{0.01};
+    double maximum_window{0.001};
+    AdaptiveWindowConfig adaptive_window{};
+    std::size_t maximum_placement_attempts_per_particle{10'000};
 };
 
 struct ShockTubeConfig {
@@ -73,6 +172,7 @@ struct ShockTubeConfig {
     };
 
     DiagnosticsConfig diagnostics{};
+    ShockTubeEvolutionConfig evolution{};
 };
 
 struct EquilibriumConfig {
@@ -115,12 +215,29 @@ public:
 
 void validate(const ShockTubeConfig& config);
 void validate(const EquilibriumConfig& config);
+void validate(const ParallelWindowScenarioConfig& config);
+void validate(const ParallelWindowStressConfig& config);
+void validate(const CudaScalingConfig& config);
 
 [[nodiscard]] ShockTubeConfig load_shock_tube_config(
     const std::filesystem::path& path
 );
 
 [[nodiscard]] EquilibriumConfig load_equilibrium_config(
+    const std::filesystem::path& path
+);
+
+[[nodiscard]] ParallelWindowScenarioConfig
+load_parallel_window_scenario_config(
+    const std::filesystem::path& path
+);
+
+[[nodiscard]] ParallelWindowStressConfig
+load_parallel_window_stress_config(
+    const std::filesystem::path& path
+);
+
+[[nodiscard]] CudaScalingConfig load_cuda_scaling_config(
     const std::filesystem::path& path
 );
 

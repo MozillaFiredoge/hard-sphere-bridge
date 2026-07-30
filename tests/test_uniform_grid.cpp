@@ -155,6 +155,34 @@ void test_reflecting_boundary_does_not_wrap_candidates() {
     expect_true(pairs.empty(), "reflecting x boundary must not wrap cells");
 }
 
+void test_periodic_remainder_joins_final_cell() {
+    const particles::DomainConfig domain{
+        .extent = {9.524406311809198, 2.0, 2.0},
+        .boundary = {
+            particles::BoundaryKind::periodic,
+            particles::BoundaryKind::periodic,
+            particles::BoundaryKind::periodic,
+        },
+    };
+    const particles::UniformGrid grid =
+        particles::make_uniform_grid(domain, 0.625);
+    expect_true(
+        grid.dimensions[0] == 15,
+        "periodic remainder is merged into final x cell"
+    );
+
+    const std::vector<particles::Particle> particles{
+        particles::Particle{.position = {9.3, 1.0, 1.0}},
+        particles::Particle{.position = {0.05, 1.0, 1.0}},
+    };
+    const std::vector<particles::CandidatePair> pairs =
+        particles::build_host_candidate_pairs(particles, grid);
+    expect_true(
+        pairs == std::vector<particles::CandidatePair>{{0, 1}},
+        "periodic cross-boundary pair survives a non-divisible extent"
+    );
+}
+
 }  // namespace
 
 void run_uniform_grid_tests() {
@@ -171,6 +199,10 @@ void run_uniform_grid_tests() {
         {
             "reflecting candidate boundary",
             test_reflecting_boundary_does_not_wrap_candidates,
+        },
+        {
+            "periodic non-divisible extent",
+            test_periodic_remainder_joins_final_cell,
         },
     };
 

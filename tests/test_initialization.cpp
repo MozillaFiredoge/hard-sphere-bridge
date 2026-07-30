@@ -96,6 +96,18 @@ void test_loads_repository_configs() {
         particles::load_equilibrium_config(
             source_dir / "configs" / "equilibrium.json"
         );
+    const particles::ParallelWindowScenarioConfig causal_chain =
+        particles::load_parallel_window_scenario_config(
+            source_dir / "configs" / "causal_chain.json"
+        );
+    const particles::ParallelWindowStressConfig window_stress =
+        particles::load_parallel_window_stress_config(
+            source_dir / "configs" / "window_stress.json"
+        );
+    const particles::CudaScalingConfig cuda_scaling =
+        particles::load_cuda_scaling_config(
+            source_dir / "configs" / "cuda_scaling.json"
+        );
 
     expect_true(shock.particle_count == 1'048'576, "shock particle count");
     expect_near(shock.domain.extent.x, 4.0, 0.0, "shock x extent");
@@ -104,6 +116,44 @@ void test_loads_repository_configs() {
         "shock x boundary"
     );
     expect_near(shock.right.temperature, 0.8, 0.0, "shock right temperature");
+    expect_true(
+        shock.diagnostics.microscopic_particle_samples == 2'048,
+        "shock microscopic sample count"
+    );
+    expect_near(
+        shock.diagnostics.phase_space_velocity_x_min,
+        -4.0,
+        0.0,
+        "shock phase-space velocity minimum"
+    );
+    expect_near(
+        shock.evolution.end_time,
+        0.2,
+        0.0,
+        "shock evolution end time"
+    );
+    expect_near(
+        shock.evolution.frame_interval,
+        0.02,
+        0.0,
+        "shock frame interval"
+    );
+    expect_near(
+        shock.evolution.cell_width_factor,
+        2.0,
+        0.0,
+        "shock cell-width factor"
+    );
+    expect_true(
+        shock.evolution.exact_recovery_batch_limit == 1'000,
+        "shock exact-recovery batch limit"
+    );
+    expect_near(
+        shock.evolution.adaptive_window.minimum_window,
+        1.0e-7,
+        0.0,
+        "shock adaptive minimum window"
+    );
 
     expect_true(equilibrium.particle_count == 64, "equilibrium particle count");
     expect_true(
@@ -136,6 +186,68 @@ void test_loads_repository_configs() {
     expect_true(
         equilibrium.window_convergence.refinement_levels == 3,
         "window-convergence refinement levels"
+    );
+    expect_true(
+        causal_chain.scenario == "causal_chain",
+        "causal-chain scenario name"
+    );
+    expect_true(
+        causal_chain.particles.size() == 3,
+        "causal-chain particle count"
+    );
+    expect_near(
+        causal_chain.window_convergence.maximum_window,
+        0.5,
+        0.0,
+        "causal-chain maximum window"
+    );
+    expect_true(
+        window_stress.particle_count == 256,
+        "window-stress particle count"
+    );
+    expect_true(
+        window_stress.seed_count == 4,
+        "window-stress seed count"
+    );
+    expect_true(
+        window_stress.window_convergence.refinement_levels == 8,
+        "window-stress refinement levels"
+    );
+    expect_near(
+        window_stress.adaptive_window.minimum_window,
+        1.0e-7,
+        1.0e-15,
+        "window-stress adaptive minimum"
+    );
+    expect_true(
+        window_stress.adaptive_window.successful_steps_before_growth == 4,
+        "window-stress adaptive growth interval"
+    );
+    expect_near(
+        window_stress.adaptive_window.growth_factor,
+        2.0,
+        1.0e-15,
+        "window-stress adaptive growth factor"
+    );
+    expect_true(
+        cuda_scaling.base_particle_count == 1'024,
+        "CUDA-scaling base particle count"
+    );
+    expect_true(
+        cuda_scaling.level_count == 11,
+        "CUDA-scaling level count"
+    );
+    expect_near(
+        cuda_scaling.number_density,
+        32.0 / 27.0,
+        1.0e-15,
+        "CUDA-scaling number density"
+    );
+    expect_near(
+        cuda_scaling.cell_width_factor,
+        1.25,
+        1.0e-15,
+        "CUDA-scaling cell width factor"
     );
 
     bool rejected_mismatched_experiment = false;

@@ -13,6 +13,10 @@
 #include <utility>
 #include <vector>
 
+#include "window_stress.hpp"
+#include "cuda_scaling.hpp"
+#include "multiscale_snapshot.hpp"
+
 #include "particles/config.hpp"
 #include "particles/diagnostics.hpp"
 #include "particles/event_driven_simulator.hpp"
@@ -373,6 +377,316 @@ int run_window_convergence(
               << "  report CSV: " << output_path.string() << '\n'
               << "  algorithm: controlled approximation "
                  "(mutual-earliest events per window)\n";
+    return 0;
+}
+
+int run_parallel_window_scenario(
+    const std::filesystem::path& config_path,
+    const std::filesystem::path& output_path
+) {
+    const particles::ParallelWindowScenarioConfig config =
+        particles::load_parallel_window_scenario_config(config_path);
+    std::vector<particles::Particle> initial;
+    initial.reserve(config.particles.size());
+    for (const particles::ParticleStateConfig& state :
+         config.particles) {
+        initial.push_back(particles::Particle{
+            .position = state.position,
+            .velocity = state.velocity,
+        });
+    }
+    const particles::UniformGrid grid = particles::make_uniform_grid(
+        config.domain,
+        2.0 * config.particle_diameter
+    );
+
+    const auto conserved_quantities = [&config](
+        const std::vector<particles::Particle>& state
+    ) {
+        particles::Vec3 momentum{};
+        double energy = 0.0;
+        for (const particles::Particle& particle : state) {
+            momentum += particles::momentum(
+                particle,
+                config.particle_mass
+            );
+            energy += particles::kinetic_energy(
+                particle,
+                config.particle_mass
+            );
+        }
+        return std::pair{momentum, energy};
+    };
+    const auto [initial_momentum, initial_energy] =
+        conserved_quantities(initial);
+
+    particles::EventDrivenSimulator final_reference{
+        initial,
+        config.particle_diameter,
+        config.domain,
+    };
+    const auto reference_start = std::chrono::steady_clock::now();
+    final_reference.run_until(config.window_convergence.duration);
+    const double reference_seconds =
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - reference_start
+        ).count();
+    const std::size_t final_reference_collisions =
+        final_reference.statistics().particle_collisions;
+
+    const std::filesystem::path parent = output_path.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent);
+    }
+    std::ofstream output{output_path};
+    if (!output) {
+        throw std::runtime_error(
+            "Cannot open scenario convergence report: " +
+            output_path.string()
+        );
+    }
+    output << std::setprecision(17)
+           << "scenario,backend,level,maximum_window,requested_time,"
+              "advanced_time,completed,stop_reason,steps,"
+              "horizon_limited_steps,candidate_pairs,"
+              "detected_collisions,accepted_collisions,"
+              "contended_collisions,reference_collisions_at_time,"
+              "reference_final_collisions,collision_count_error,"
+              "overlap_pairs,minimum_surface_gap,rms_position_error,"
+              "maximum_position_error,rms_velocity_error,"
+              "maximum_velocity_error,momentum_drift,"
+              "relative_energy_drift,wall_seconds,"
+              "reference_wall_seconds,cpu_rms_position_difference,"
+              "cpu_rms_velocity_difference\n";
+
+#if PARTICLES_HAS_CUDA
+    const bool run_cuda = particles::cuda::device_count() != 0;
+    std::size_t completed_cuda_levels = 0;
+#endif
+    std::size_t completed_cpu_levels = 0;
+    std::cout << std::setprecision(9)
+              << "parallel-window scenario convergence\n"
+              << "  scenario: " << config.scenario << '\n'
+              << "  config: " << config_path.string() << '\n'
+              << "  particles: " << initial.size() << '\n'
+              << "  duration: "
+              << config.window_convergence.duration << '\n'
+              << "  exact final collisions: "
+              << final_reference_collisions << '\n';
+
+    for (std::size_t level = 0;
+         level < config.window_convergence.refinement_levels;
+         ++level) {
+        const double maximum_window = std::ldexp(
+            config.window_convergence.maximum_window,
+            -static_cast<int>(level)
+        );
+        std::vector<particles::Particle> cpu_state = initial;
+        const auto cpu_start = std::chrono::steady_clock::now();
+        const particles::ParallelWindowRunResult cpu_run =
+            particles::advance_host_parallel_windows(
+                cpu_state,
+                grid,
+                config.window_convergence.duration,
+                maximum_window,
+                config.particle_diameter,
+                config.window_convergence.maximum_steps
+            );
+        const double cpu_seconds =
+            std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - cpu_start
+            ).count();
+        particles::EventDrivenSimulator cpu_reference{
+            initial,
+            config.particle_diameter,
+            config.domain,
+        };
+        cpu_reference.run_until(cpu_run.advanced_time);
+        if (cpu_run.completed()) {
+            ++completed_cpu_levels;
+        }
+
+        const auto write_row = [&](
+            std::string_view backend,
+            const particles::ParallelWindowRunResult& run,
+            const std::vector<particles::Particle>& state,
+            const particles::EventDrivenSimulator& matched_reference,
+            double wall_seconds,
+            const particles::PeriodicStateError& cpu_difference
+        ) {
+            const particles::PeriodicStateError reference_error =
+                particles::measure_periodic_state_error(
+                    state,
+                    matched_reference.particles(),
+                    grid
+                );
+            const auto [momentum, energy] =
+                conserved_quantities(state);
+            const double momentum_drift =
+                particles::norm(momentum - initial_momentum);
+            const double relative_energy_drift =
+                initial_energy == 0.0
+                    ? 0.0
+                    : (energy - initial_energy) / initial_energy;
+            const std::size_t matched_reference_collisions =
+                matched_reference.statistics().particle_collisions;
+            const std::int64_t collision_count_error =
+                static_cast<std::int64_t>(
+                    run.accepted_collision_count
+                ) -
+                static_cast<std::int64_t>(
+                    matched_reference_collisions
+                );
+
+            output << config.scenario << ','
+                   << backend << ','
+                   << level << ','
+                   << maximum_window << ','
+                   << run.requested_time << ','
+                   << run.advanced_time << ','
+                   << (run.completed() ? 1 : 0) << ','
+                   << particles::parallel_window_stop_reason_name(
+                          run.stop_reason
+                      ) << ','
+                   << run.step_count << ','
+                   << run.horizon_limited_step_count << ','
+                   << run.candidate_pair_count << ','
+                   << run.detected_collision_count << ','
+                   << run.accepted_collision_count << ','
+                   << run.contended_collision_count << ','
+                   << matched_reference_collisions << ','
+                   << final_reference_collisions << ','
+                   << collision_count_error << ','
+                   << run.overlap_pair_count << ','
+                   << run.minimum_surface_gap << ','
+                   << reference_error.rms_position << ','
+                   << reference_error.maximum_position << ','
+                   << reference_error.rms_velocity << ','
+                   << reference_error.maximum_velocity << ','
+                   << momentum_drift << ','
+                   << relative_energy_drift << ','
+                   << wall_seconds << ','
+                   << reference_seconds << ','
+                   << cpu_difference.rms_position << ','
+                   << cpu_difference.rms_velocity << '\n';
+
+            std::cout << "  " << backend << " level " << level
+                      << ": max dt=" << maximum_window
+                      << ", status="
+                      << particles::parallel_window_stop_reason_name(
+                             run.stop_reason
+                         )
+                      << ", advanced=" << run.advanced_time
+                      << ", collisions="
+                      << run.accepted_collision_count << " / "
+                      << matched_reference_collisions
+                      << ", collision error="
+                      << collision_count_error
+                      << ", rms x=" << reference_error.rms_position
+                      << ", rms v=" << reference_error.rms_velocity
+                      << ", overlaps=" << run.overlap_pair_count
+                      << ", min gap=" << run.minimum_surface_gap;
+            if (backend == "cuda") {
+                std::cout << ", CPU/GPU rms x="
+                          << cpu_difference.rms_position;
+            }
+            std::cout << ", wall=" << wall_seconds << " s\n";
+        };
+
+        write_row(
+            "cpu",
+            cpu_run,
+            cpu_state,
+            cpu_reference,
+            cpu_seconds,
+            particles::PeriodicStateError{}
+        );
+
+#if PARTICLES_HAS_CUDA
+        if (run_cuda) {
+            particles::cuda::ParticleGrid device{initial.size()};
+            device.upload(initial);
+            const auto cuda_start = std::chrono::steady_clock::now();
+            const particles::ParallelWindowRunResult cuda_run =
+                device.advance_parallel_windows(
+                    grid,
+                    config.window_convergence.duration,
+                    maximum_window,
+                    config.particle_diameter,
+                    config.window_convergence.maximum_steps
+                );
+            const double cuda_seconds =
+                std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - cuda_start
+                ).count();
+            const std::vector<particles::Particle> cuda_state =
+                device.download_particles();
+            particles::EventDrivenSimulator cuda_reference{
+                initial,
+                config.particle_diameter,
+                config.domain,
+            };
+            cuda_reference.run_until(cuda_run.advanced_time);
+
+            const double not_available =
+                std::numeric_limits<double>::quiet_NaN();
+            particles::PeriodicStateError cpu_difference{
+                .rms_position = not_available,
+                .maximum_position = not_available,
+                .rms_velocity = not_available,
+                .maximum_velocity = not_available,
+            };
+            if (
+                std::abs(
+                    cuda_run.advanced_time - cpu_run.advanced_time
+                ) <= 1.0e-11
+            ) {
+                cpu_difference =
+                    particles::measure_periodic_state_error(
+                        cuda_state,
+                        cpu_state,
+                        grid
+                    );
+            }
+            if (cuda_run.completed()) {
+                ++completed_cuda_levels;
+            }
+            write_row(
+                "cuda",
+                cuda_run,
+                cuda_state,
+                cuda_reference,
+                cuda_seconds,
+                cpu_difference
+            );
+        }
+#endif
+    }
+
+    if (!output) {
+        throw std::runtime_error(
+            "Failed while writing scenario convergence report: " +
+            output_path.string()
+        );
+    }
+    std::cout << "  completed CPU levels: "
+              << completed_cpu_levels << " / "
+              << config.window_convergence.refinement_levels << '\n'
+#if PARTICLES_HAS_CUDA
+              << "  CUDA backend: "
+              << (run_cuda ? "enabled" : "no visible device")
+              << '\n';
+    if (run_cuda) {
+        std::cout << "  completed CUDA levels: "
+                  << completed_cuda_levels << " / "
+                  << config.window_convergence.refinement_levels
+                  << '\n';
+    }
+    std::cout
+#endif
+              << "  report CSV: " << output_path.string() << '\n'
+              << "  expected signature: coarse overlap, refined "
+                 "completion\n";
     return 0;
 }
 
@@ -1189,6 +1503,142 @@ int run_cuda_grid_check(const std::filesystem::path& config_path) {
 
 int main(int argc, char** argv) {
     try {
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "shock-tube"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/shock_tube.json"
+                      };
+            const std::filesystem::path output_directory =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/shock-tube"
+                      };
+            const double end_time_override =
+                argc >= 5 ? std::stod(argv[4]) : -1.0;
+            return particles::app::run_shock_tube(
+                config_path,
+                output_directory,
+                end_time_override
+            );
+        }
+
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "multiscale-snapshot"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/shock_tube.json"
+                      };
+            const std::filesystem::path output_directory =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/multiscale-snapshot"
+                      };
+            return particles::app::run_multiscale_snapshot(
+                config_path,
+                output_directory
+            );
+        }
+
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "cuda-scaling"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/cuda_scaling.json"
+                      };
+            const std::filesystem::path output_path =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/cuda-scaling.csv"
+                      };
+            return particles::app::run_cuda_scaling_benchmark(
+                config_path,
+                output_path
+            );
+        }
+
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "window-adaptive-stress"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/window_stress.json"
+                      };
+            const std::filesystem::path output_directory =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/window-adaptive-stress"
+                      };
+            return particles::app::
+                run_adaptive_parallel_window_stress(
+                    config_path,
+                    output_directory
+                );
+        }
+
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "window-stress"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/window_stress.json"
+                      };
+            const std::filesystem::path output_directory =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/window-stress"
+                      };
+            return particles::app::run_parallel_window_stress(
+                config_path,
+                output_directory
+            );
+        }
+
+        if (
+            argc >= 2 &&
+            std::string_view{argv[1]} == "window-scenario"
+        ) {
+            const std::filesystem::path config_path =
+                argc >= 3
+                    ? std::filesystem::path{argv[2]}
+                    : std::filesystem::path{
+                          "configs/causal_chain.json"
+                      };
+            const std::filesystem::path output_path =
+                argc >= 4
+                    ? std::filesystem::path{argv[3]}
+                    : std::filesystem::path{
+                          "output/causal-chain-convergence.csv"
+                      };
+            return run_parallel_window_scenario(
+                config_path,
+                output_path
+            );
+        }
+
         if (
             argc >= 2 &&
             std::string_view{argv[1]} == "window-convergence"

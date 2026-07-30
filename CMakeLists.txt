@@ -95,7 +95,10 @@ if(PARTICLES_ENABLE_CUDA)
 endif()
 
 add_executable(particles_cli
+    src/app/cuda_scaling.cpp
     src/app/main.cpp
+    src/app/multiscale_snapshot.cpp
+    src/app/window_stress.cpp
 )
 
 target_link_libraries(particles_cli PRIVATE particles_core)

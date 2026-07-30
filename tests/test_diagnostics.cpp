@@ -126,6 +126,135 @@ void test_histogram_underflow_and_overflow() {
     );
 }
 
+void test_multiscale_layers_share_particle_moments() {
+    const std::vector<Particle> state{
+        Particle{
+            .position = {0.5, 0.5, 0.5},
+            .velocity = {-1.0, 0.0, 0.0},
+        },
+        Particle{
+            .position = {1.5, 0.5, 0.5},
+            .velocity = {1.0, 0.0, 0.0},
+        },
+        Particle{
+            .position = {2.5, 0.5, 0.5},
+            .velocity = {2.0, 0.0, 0.0},
+        },
+        Particle{
+            .position = {3.5, 0.5, 0.5},
+            .velocity = {2.0, 0.0, 0.0},
+        },
+    };
+    const particles::DomainConfig domain{
+        .extent = {4.0, 1.0, 1.0},
+        .boundary = {
+            particles::BoundaryKind::reflecting,
+            particles::BoundaryKind::periodic,
+            particles::BoundaryKind::periodic,
+        },
+    };
+    const particles::DiagnosticsConfig config{
+        .microscopic_particle_samples = 2,
+        .phase_space_x_bins = 2,
+        .phase_space_vx_bins = 4,
+        .phase_space_velocity_x_min = -2.0,
+        .phase_space_velocity_x_max = 2.0,
+        .macroscopic_x_slabs = 2,
+    };
+
+    const particles::MultiscaleDiagnosticFrame frame =
+        particles::measure_multiscale(
+            state,
+            0.25,
+            1.0,
+            1.0,
+            domain,
+            config
+        );
+
+    expect_true(
+        frame.microscopic_particles.size() == 2 &&
+        frame.microscopic_particles[0].particle_index == 0 &&
+        frame.microscopic_particles[1].particle_index == 2,
+        "microscopic samples use stable stratified indices"
+    );
+    expect_true(
+        frame.phase_space.samples() == state.size(),
+        "phase-space histogram accounts for every particle"
+    );
+    expect_true(
+        frame.phase_space.velocity_overflow == 2,
+        "phase-space overflow counts upper-edge velocities"
+    );
+    expect_true(
+        frame.phase_space.count(0, 1) == 1 &&
+        frame.phase_space.count(0, 3) == 1,
+        "phase-space x-vx bins contain the left particles"
+    );
+
+    expect_true(
+        frame.macroscopic_slabs.size() == 2 &&
+        frame.macroscopic_slabs[0].particle_count == 2 &&
+        frame.macroscopic_slabs[1].particle_count == 2,
+        "macroscopic slabs partition the particles"
+    );
+    expect_near(
+        frame.macroscopic_slabs[0].number_density,
+        1.0,
+        0.0,
+        "left slab number density"
+    );
+    expect_near(
+        frame.macroscopic_slabs[0].bulk_velocity.x,
+        0.0,
+        0.0,
+        "left slab bulk velocity"
+    );
+    expect_near(
+        frame.macroscopic_slabs[0].temperature,
+        1.0 / 3.0,
+        1.0e-15,
+        "left slab temperature"
+    );
+    expect_near(
+        frame.macroscopic_slabs[0].pressure,
+        1.0 / 3.0,
+        1.0e-15,
+        "left slab pressure"
+    );
+    expect_near(
+        frame.macroscopic_slabs[1].bulk_velocity.x,
+        2.0,
+        0.0,
+        "right slab bulk velocity"
+    );
+    expect_near(
+        frame.macroscopic_slabs[1].temperature,
+        0.0,
+        0.0,
+        "right slab temperature"
+    );
+
+    expect_true(
+        frame.reconstructed_particle_count == state.size(),
+        "macroscopic particle count reconstructs the microscopic count"
+    );
+    expect_near(frame.momentum.x, 4.0, 0.0, "global momentum");
+    expect_near(frame.kinetic_energy, 5.0, 0.0, "global kinetic energy");
+    expect_near(
+        frame.momentum_reconstruction_error,
+        0.0,
+        0.0,
+        "macroscopic momentum reconstruction"
+    );
+    expect_near(
+        frame.kinetic_energy_reconstruction_error,
+        0.0,
+        0.0,
+        "macroscopic energy reconstruction"
+    );
+}
+
 }  // namespace
 
 void run_diagnostic_tests() {
@@ -139,6 +268,10 @@ void run_diagnostic_tests() {
         {
             "velocity histogram overflow",
             test_histogram_underflow_and_overflow,
+        },
+        {
+            "multiscale shared particle moments",
+            test_multiscale_layers_share_particle_moments,
         },
     };
 
@@ -160,4 +293,3 @@ void run_diagnostic_tests() {
         );
     }
 }
-

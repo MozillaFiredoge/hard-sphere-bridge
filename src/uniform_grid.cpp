@@ -72,7 +72,14 @@ UniformGrid make_uniform_grid(
             );
         }
 
-        const double dimension = std::ceil(extent / cell_width);
+        // Keep every cell at least as wide as the requested safety width.
+        // ceil() creates a narrow final cell; across a periodic boundary that
+        // can place the second-last and first cells within the interaction
+        // range even though a 27-cell stencil does not connect them.
+        const double dimension = std::max(
+            1.0,
+            std::floor(extent / cell_width)
+        );
         if (
             dimension <= 0.0 ||
             dimension >

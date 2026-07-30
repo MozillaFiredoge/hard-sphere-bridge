@@ -31,6 +31,20 @@ struct DeviceGrid {
     std::uint8_t periodic_z{};
 };
 
+__device__ double wrap_periodic_coordinate(
+    double position,
+    double extent
+);
+
+__device__ void advance_boundary_coordinate(
+    double& position,
+    double& velocity,
+    double duration,
+    double extent,
+    std::uint8_t periodic,
+    double diameter
+);
+
 void check(cudaError_t result, const char* operation) {
     if (result != cudaSuccess) {
         throw CudaError(
@@ -616,9 +630,12 @@ __global__ void compact_event_indices(
 }
 
 __global__ void initialize_parallel_window_selection(
+    const double* particle_wall_time,
     std::uint64_t* particle_minimum_time_bits,
     std::uint64_t* particle_event_key,
-    std::size_t particle_count
+    std::size_t particle_count,
+    double window,
+    double tolerance
 ) {
     const std::size_t particle_index =
         static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -626,8 +643,16 @@ __global__ void initialize_parallel_window_selection(
         return;
     }
 
+    const double wall_time = particle_wall_time[particle_index];
+    const bool wall_in_window =
+        isfinite(wall_time) &&
+        wall_time <= window + tolerance;
     particle_minimum_time_bits[particle_index] =
-        static_cast<std::uint64_t>(__double_as_longlong(INFINITY));
+        static_cast<std::uint64_t>(
+            __double_as_longlong(
+                wall_in_window ? fmin(wall_time, window) : INFINITY
+            )
+        );
     particle_event_key[particle_index] = 0xFFFFFFFFFFFFFFFFULL;
 }
 
@@ -659,6 +684,37 @@ __global__ void select_parallel_window_minimum_times(
         ),
         static_cast<unsigned long long>(time_bits)
     );
+}
+
+__global__ void select_parallel_window_wall_event_keys(
+    const double* particle_wall_time,
+    const std::uint64_t* particle_minimum_time_bits,
+    std::uint64_t* particle_event_key,
+    std::size_t particle_count,
+    double window,
+    double tolerance
+) {
+    const std::size_t particle_index =
+        static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (particle_index >= particle_count) {
+        return;
+    }
+
+    const double wall_time = particle_wall_time[particle_index];
+    const double minimum_time = __longlong_as_double(
+        static_cast<long long>(
+            particle_minimum_time_bits[particle_index]
+        )
+    );
+    if (
+        isfinite(wall_time) &&
+        wall_time <= window + tolerance &&
+        wall_time - minimum_time <= tolerance
+    ) {
+        // Zero is reserved for a reflecting-wall event. Every valid ordered
+        // particle-pair key is positive, so a wall wins deterministic ties.
+        particle_event_key[particle_index] = 0ULL;
+    }
 }
 
 __global__ void select_parallel_window_event_keys(
@@ -731,6 +787,73 @@ __global__ void mark_mutual_parallel_window_events(
             : 0ULL;
 }
 
+__global__ void mark_parallel_window_event_particles(
+    const std::uint32_t* event_first,
+    const std::uint32_t* event_second,
+    const std::uint32_t* accepted_event_indices,
+    std::uint32_t* particle_participation,
+    std::size_t accepted_event_count
+) {
+    const std::size_t selection_index =
+        static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (selection_index >= accepted_event_count) {
+        return;
+    }
+
+    const std::uint32_t event_index =
+        accepted_event_indices[selection_index];
+    particle_participation[event_first[event_index]] = 1U;
+    particle_participation[event_second[event_index]] = 1U;
+}
+
+__global__ void advance_parallel_window_unselected_particles(
+    double* position_x,
+    double* position_y,
+    double* position_z,
+    double* velocity_x,
+    double* velocity_y,
+    double* velocity_z,
+    const std::uint32_t* particle_participation,
+    std::size_t particle_count,
+    DeviceGrid grid,
+    double diameter,
+    double window
+) {
+    const std::size_t particle_index =
+        static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (
+        particle_index >= particle_count ||
+        particle_participation[particle_index] != 0U
+    ) {
+        return;
+    }
+
+    advance_boundary_coordinate(
+        position_x[particle_index],
+        velocity_x[particle_index],
+        window,
+        grid.extent_x,
+        grid.periodic_x,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_y[particle_index],
+        velocity_y[particle_index],
+        window,
+        grid.extent_y,
+        grid.periodic_y,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_z[particle_index],
+        velocity_z[particle_index],
+        window,
+        grid.extent_z,
+        grid.periodic_z,
+        diameter
+    );
+}
+
 __global__ void resolve_parallel_window_events(
     double* position_x,
     double* position_y,
@@ -747,6 +870,7 @@ __global__ void resolve_parallel_window_events(
     const std::uint32_t* accepted_event_indices,
     std::size_t accepted_event_count,
     DeviceGrid grid,
+    double diameter,
     double window
 ) {
     const std::size_t selection_index =
@@ -770,19 +894,25 @@ __global__ void resolve_parallel_window_events(
     const double second_velocity_z = velocity_z[second];
 
     const double first_contact_x =
-        position_x[first] - first_velocity_x * remaining;
+        position_x[first] +
+        first_velocity_x * event_time[event_index];
     const double first_contact_y =
-        position_y[first] - first_velocity_y * remaining;
+        position_y[first] +
+        first_velocity_y * event_time[event_index];
     const double first_contact_z =
-        position_z[first] - first_velocity_z * remaining;
+        position_z[first] +
+        first_velocity_z * event_time[event_index];
     const double second_contact_x =
-        position_x[second] - second_velocity_x * remaining +
+        position_x[second] +
+        second_velocity_x * event_time[event_index] +
         static_cast<double>(event_shift_x[event_index]) * grid.extent_x;
     const double second_contact_y =
-        position_y[second] - second_velocity_y * remaining +
+        position_y[second] +
+        second_velocity_y * event_time[event_index] +
         static_cast<double>(event_shift_y[event_index]) * grid.extent_y;
     const double second_contact_z =
-        position_z[second] - second_velocity_z * remaining +
+        position_z[second] +
+        second_velocity_z * event_time[event_index] +
         static_cast<double>(event_shift_z[event_index]) * grid.extent_z;
 
     const double relative_x = first_contact_x - second_contact_x;
@@ -811,18 +941,67 @@ __global__ void resolve_parallel_window_events(
     const double second_post_y = second_velocity_y + impulse_y;
     const double second_post_z = second_velocity_z + impulse_z;
 
-    position_x[first] = first_contact_x + first_post_x * remaining;
-    position_y[first] = first_contact_y + first_post_y * remaining;
-    position_z[first] = first_contact_z + first_post_z * remaining;
-    position_x[second] = second_contact_x + second_post_x * remaining;
-    position_y[second] = second_contact_y + second_post_y * remaining;
-    position_z[second] = second_contact_z + second_post_z * remaining;
+    position_x[first] = first_contact_x;
+    position_y[first] = first_contact_y;
+    position_z[first] = first_contact_z;
+    position_x[second] = second_contact_x;
+    position_y[second] = second_contact_y;
+    position_z[second] = second_contact_z;
     velocity_x[first] = first_post_x;
     velocity_y[first] = first_post_y;
     velocity_z[first] = first_post_z;
     velocity_x[second] = second_post_x;
     velocity_y[second] = second_post_y;
     velocity_z[second] = second_post_z;
+
+    advance_boundary_coordinate(
+        position_x[first],
+        velocity_x[first],
+        remaining,
+        grid.extent_x,
+        grid.periodic_x,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_y[first],
+        velocity_y[first],
+        remaining,
+        grid.extent_y,
+        grid.periodic_y,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_z[first],
+        velocity_z[first],
+        remaining,
+        grid.extent_z,
+        grid.periodic_z,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_x[second],
+        velocity_x[second],
+        remaining,
+        grid.extent_x,
+        grid.periodic_x,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_y[second],
+        velocity_y[second],
+        remaining,
+        grid.extent_y,
+        grid.periodic_y,
+        diameter
+    );
+    advance_boundary_coordinate(
+        position_z[second],
+        velocity_z[second],
+        remaining,
+        grid.extent_z,
+        grid.periodic_z,
+        diameter
+    );
 }
 
 __global__ void measure_candidate_surface_gaps(
@@ -1084,6 +1263,46 @@ __device__ double wrap_periodic_coordinate(double position, double extent) {
         wrapped = 0.0;
     }
     return wrapped;
+}
+
+__device__ void advance_boundary_coordinate(
+    double& position,
+    double& velocity,
+    double duration,
+    double extent,
+    std::uint8_t periodic,
+    double diameter
+) {
+    if (periodic != 0U) {
+        position = wrap_periodic_coordinate(
+            position + velocity * duration,
+            extent
+        );
+        return;
+    }
+
+    const double lower = 0.5 * diameter;
+    const double width = extent - diameter;
+    const double period = 2.0 * width;
+    const double unfolded =
+        position - lower + velocity * duration;
+    double phase = fmod(unfolded, period);
+    if (phase < 0.0) {
+        phase += period;
+    }
+
+    if (phase == 0.0) {
+        position = lower;
+        velocity = fabs(velocity);
+    } else if (phase == width) {
+        position = extent - lower;
+        velocity = -fabs(velocity);
+    } else if (phase < width) {
+        position = lower + phase;
+    } else {
+        position = lower + period - phase;
+        velocity = -velocity;
+    }
 }
 
 __global__ void normalize_grid_positions(
@@ -1452,6 +1671,36 @@ struct ParticleGrid::Impl {
             allocate(velocity_x, particle_count, "cudaMalloc velocity_x");
             allocate(velocity_y, particle_count, "cudaMalloc velocity_y");
             allocate(velocity_z, particle_count, "cudaMalloc velocity_z");
+            allocate(
+                checkpoint_position_x,
+                particle_count,
+                "cudaMalloc checkpoint_position_x"
+            );
+            allocate(
+                checkpoint_position_y,
+                particle_count,
+                "cudaMalloc checkpoint_position_y"
+            );
+            allocate(
+                checkpoint_position_z,
+                particle_count,
+                "cudaMalloc checkpoint_position_z"
+            );
+            allocate(
+                checkpoint_velocity_x,
+                particle_count,
+                "cudaMalloc checkpoint_velocity_x"
+            );
+            allocate(
+                checkpoint_velocity_y,
+                particle_count,
+                "cudaMalloc checkpoint_velocity_y"
+            );
+            allocate(
+                checkpoint_velocity_z,
+                particle_count,
+                "cudaMalloc checkpoint_velocity_z"
+            );
 
             allocate(cell_ids, particle_count, "cudaMalloc cell_ids");
             allocate(
@@ -1556,6 +1805,12 @@ struct ParticleGrid::Impl {
             free_device(velocity_x);
             free_device(velocity_y);
             free_device(velocity_z);
+            free_device(checkpoint_position_x);
+            free_device(checkpoint_position_y);
+            free_device(checkpoint_position_z);
+            free_device(checkpoint_velocity_x);
+            free_device(checkpoint_velocity_y);
+            free_device(checkpoint_velocity_z);
             free_device(cell_ids);
             free_device(particle_indices);
             free_device(sorted_cell_ids);
@@ -1587,6 +1842,12 @@ struct ParticleGrid::Impl {
         free_device(velocity_x);
         free_device(velocity_y);
         free_device(velocity_z);
+        free_device(checkpoint_position_x);
+        free_device(checkpoint_position_y);
+        free_device(checkpoint_position_z);
+        free_device(checkpoint_velocity_x);
+        free_device(checkpoint_velocity_y);
+        free_device(checkpoint_velocity_z);
         free_device(cell_ids);
         free_device(particle_indices);
         free_device(sorted_cell_ids);
@@ -1637,6 +1898,12 @@ struct ParticleGrid::Impl {
     double* velocity_x{};
     double* velocity_y{};
     double* velocity_z{};
+    double* checkpoint_position_x{};
+    double* checkpoint_position_y{};
+    double* checkpoint_position_z{};
+    double* checkpoint_velocity_x{};
+    double* checkpoint_velocity_y{};
+    double* checkpoint_velocity_z{};
 
     std::uint32_t* cell_ids{};
     std::uint32_t* particle_indices{};
@@ -3795,11 +4062,17 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
             "CUDA parallel-window cell width must exceed the diameter."
         );
     }
-    for (const BoundaryKind boundary : grid.boundary) {
-        if (boundary != BoundaryKind::periodic) {
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        const double extent = axis == 0
+            ? grid.extent.x
+            : (axis == 1 ? grid.extent.y : grid.extent.z);
+        if (
+            grid.boundary[axis] == BoundaryKind::reflecting &&
+            extent <= diameter
+        ) {
             throw std::invalid_argument(
-                "The first CUDA parallel-window implementation requires a "
-                "fully periodic domain."
+                "A reflecting CUDA parallel-window extent must exceed "
+                "the particle diameter."
             );
         }
     }
@@ -3817,9 +4090,15 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
         .dimension_x = grid.dimensions[0],
         .dimension_y = grid.dimensions[1],
         .dimension_z = grid.dimensions[2],
-        .periodic_x = 1U,
-        .periodic_y = 1U,
-        .periodic_z = 1U,
+        .periodic_x = static_cast<std::uint8_t>(
+            grid.boundary[0] == BoundaryKind::periodic
+        ),
+        .periodic_y = static_cast<std::uint8_t>(
+            grid.boundary[1] == BoundaryKind::periodic
+        ),
+        .periodic_z = static_cast<std::uint8_t>(
+            grid.boundary[2] == BoundaryKind::periodic
+        ),
     };
 
     build_cell_list(grid);
@@ -3902,6 +4181,53 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
     const double actual_window =
         std::min(requested_window, candidate_horizon);
 
+    check(
+        cudaMemset(
+            impl_->collision_validation_failures,
+            0,
+            sizeof(std::uint32_t)
+        ),
+        "cudaMemset parallel-window wall validation failures"
+    );
+    compute_reflecting_wall_times
+        <<<particle_block_count, block_size>>>(
+            impl_->position_x,
+            impl_->position_y,
+            impl_->position_z,
+            impl_->velocity_x,
+            impl_->velocity_y,
+            impl_->velocity_z,
+            impl_->particle_wall_time,
+            impl_->particle_wall_axis_mask,
+            impl_->collision_validation_failures,
+            impl_->particle_count,
+            device_grid,
+            diameter,
+            actual_window,
+            tolerance
+        );
+    check(
+        cudaGetLastError(),
+        "compute parallel-window reflecting-wall times kernel launch"
+    );
+    std::uint32_t wall_validation_failures = 0;
+    check(
+        cudaMemcpy(
+            &wall_validation_failures,
+            impl_->collision_validation_failures,
+            sizeof(wall_validation_failures),
+            cudaMemcpyDeviceToHost
+        ),
+        "cudaMemcpy parallel-window wall validation failures"
+    );
+    if (wall_validation_failures != 0) {
+        throw CudaError(
+            std::to_string(wall_validation_failures) +
+            " CUDA parallel-window particle(s) failed reflecting-wall "
+            "validation."
+        );
+    }
+
     evaluate_collision_events(
         diameter,
         actual_window,
@@ -3936,9 +4262,12 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
             );
         initialize_parallel_window_selection
             <<<particle_block_count, block_size>>>(
+                impl_->particle_wall_time,
                 impl_->parallel_window_minimum_time_bits,
                 impl_->parallel_window_event_key,
-                impl_->particle_count
+                impl_->particle_count,
+                actual_window,
+                tolerance
             );
         check(
             cudaGetLastError(),
@@ -3955,6 +4284,19 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
         check(
             cudaGetLastError(),
             "select parallel-window minimum times kernel launch"
+        );
+        select_parallel_window_wall_event_keys
+            <<<particle_block_count, block_size>>>(
+                impl_->particle_wall_time,
+                impl_->parallel_window_minimum_time_bits,
+                impl_->parallel_window_event_key,
+                impl_->particle_count,
+                actual_window,
+                tolerance
+            );
+        check(
+            cudaGetLastError(),
+            "select parallel-window wall event keys kernel launch"
         );
         select_parallel_window_event_keys
             <<<event_block_count, block_size>>>(
@@ -4113,19 +4455,13 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
         }
     }
 
-    advance_free_flight_kernel<<<particle_block_count, block_size>>>(
-        impl_->position_x,
-        impl_->position_y,
-        impl_->position_z,
-        impl_->velocity_x,
-        impl_->velocity_y,
-        impl_->velocity_z,
-        impl_->particle_count,
-        actual_window
-    );
     check(
-        cudaGetLastError(),
-        "advance CUDA parallel window kernel launch"
+        cudaMemset(
+            impl_->particle_batch_participation,
+            0,
+            impl_->particle_count * sizeof(std::uint32_t)
+        ),
+        "cudaMemset parallel-window accepted-particle markers"
     );
 
     if (accepted_event_count != 0) {
@@ -4138,6 +4474,18 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
                 ) /
                 block_size
             );
+        mark_parallel_window_event_particles
+            <<<accepted_block_count, block_size>>>(
+                impl_->event_first,
+                impl_->event_second,
+                impl_->independent_event_indices,
+                impl_->particle_batch_participation,
+                accepted_event_count
+            );
+        check(
+            cudaGetLastError(),
+            "mark CUDA parallel-window event particles kernel launch"
+        );
         resolve_parallel_window_events
             <<<accepted_block_count, block_size>>>(
                 impl_->position_x,
@@ -4155,6 +4503,7 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
                 impl_->independent_event_indices,
                 accepted_event_count,
                 device_grid,
+                diameter,
                 actual_window
             );
         check(
@@ -4162,6 +4511,25 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
             "resolve CUDA parallel-window events kernel launch"
         );
     }
+
+    advance_parallel_window_unselected_particles
+        <<<particle_block_count, block_size>>>(
+            impl_->position_x,
+            impl_->position_y,
+            impl_->position_z,
+            impl_->velocity_x,
+            impl_->velocity_y,
+            impl_->velocity_z,
+            impl_->particle_batch_participation,
+            impl_->particle_count,
+            device_grid,
+            diameter,
+            actual_window
+        );
+    check(
+        cudaGetLastError(),
+        "advance CUDA parallel-window unselected particles kernel launch"
+    );
 
     normalize_grid_positions<<<particle_block_count, block_size>>>(
         impl_->position_x,
@@ -4405,6 +4773,376 @@ ParallelWindowRunResult ParticleGrid::advance_parallel_windows(
 
     result.advanced_time = duration;
     result.stop_reason = ParallelWindowStopReason::completed;
+    return result;
+}
+
+AdaptiveParallelWindowRunResult
+ParticleGrid::advance_adaptive_parallel_windows(
+    const UniformGrid& grid,
+    double duration,
+    double maximum_window,
+    double minimum_window,
+    double diameter,
+    std::size_t maximum_attempts,
+    double tolerance,
+    std::size_t successful_steps_before_growth,
+    double growth_factor,
+    std::size_t exact_recovery_batch_limit
+) {
+    if (!impl_->particles_uploaded) {
+        throw std::logic_error(
+            "CUDA particles must be uploaded before adaptive parallel "
+            "windows."
+        );
+    }
+    if (!std::isfinite(duration) || duration < 0.0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window duration must be finite and "
+            "non-negative."
+        );
+    }
+    if (!std::isfinite(maximum_window) || maximum_window <= 0.0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window maximum must be finite and "
+            "positive."
+        );
+    }
+    if (
+        !std::isfinite(minimum_window) ||
+        minimum_window <= 0.0 ||
+        minimum_window > maximum_window
+    ) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window minimum must be positive and "
+            "no larger than its maximum."
+        );
+    }
+    if (maximum_attempts == 0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window attempt limit must be positive."
+        );
+    }
+    if (!std::isfinite(tolerance) || tolerance <= 0.0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window tolerance must be finite and "
+            "positive."
+        );
+    }
+    if (successful_steps_before_growth == 0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window growth requires at least one "
+            "successful step."
+        );
+    }
+    if (!std::isfinite(growth_factor) || growth_factor <= 1.0) {
+        throw std::invalid_argument(
+            "CUDA adaptive parallel-window growth factor must be finite "
+            "and exceed one."
+        );
+    }
+
+    AdaptiveParallelWindowRunResult result{
+        .requested_time = duration,
+        .maximum_window = maximum_window,
+        .minimum_window = minimum_window,
+        .growth_factor = growth_factor,
+        .successful_steps_before_growth =
+            successful_steps_before_growth,
+    };
+    const double time_tolerance =
+        16.0 *
+        std::numeric_limits<double>::epsilon() *
+        std::max(1.0, duration);
+    const std::size_t state_bytes =
+        impl_->particle_count * sizeof(double);
+    double target_window = maximum_window;
+    std::size_t successful_steps_at_window = 0;
+
+    const auto copy_component = [&](
+        double* destination,
+        const double* source,
+        const char* operation
+    ) {
+        check(
+            cudaMemcpy(
+                destination,
+                source,
+                state_bytes,
+                cudaMemcpyDeviceToDevice
+            ),
+            operation
+        );
+    };
+    const auto save_checkpoint = [&] {
+        copy_component(
+            impl_->checkpoint_position_x,
+            impl_->position_x,
+            "cudaMemcpy adaptive checkpoint position_x"
+        );
+        copy_component(
+            impl_->checkpoint_position_y,
+            impl_->position_y,
+            "cudaMemcpy adaptive checkpoint position_y"
+        );
+        copy_component(
+            impl_->checkpoint_position_z,
+            impl_->position_z,
+            "cudaMemcpy adaptive checkpoint position_z"
+        );
+        copy_component(
+            impl_->checkpoint_velocity_x,
+            impl_->velocity_x,
+            "cudaMemcpy adaptive checkpoint velocity_x"
+        );
+        copy_component(
+            impl_->checkpoint_velocity_y,
+            impl_->velocity_y,
+            "cudaMemcpy adaptive checkpoint velocity_y"
+        );
+        copy_component(
+            impl_->checkpoint_velocity_z,
+            impl_->velocity_z,
+            "cudaMemcpy adaptive checkpoint velocity_z"
+        );
+    };
+    const auto restore_checkpoint = [&] {
+        copy_component(
+            impl_->position_x,
+            impl_->checkpoint_position_x,
+            "cudaMemcpy adaptive restore position_x"
+        );
+        copy_component(
+            impl_->position_y,
+            impl_->checkpoint_position_y,
+            "cudaMemcpy adaptive restore position_y"
+        );
+        copy_component(
+            impl_->position_z,
+            impl_->checkpoint_position_z,
+            "cudaMemcpy adaptive restore position_z"
+        );
+        copy_component(
+            impl_->velocity_x,
+            impl_->checkpoint_velocity_x,
+            "cudaMemcpy adaptive restore velocity_x"
+        );
+        copy_component(
+            impl_->velocity_y,
+            impl_->checkpoint_velocity_y,
+            "cudaMemcpy adaptive restore velocity_y"
+        );
+        copy_component(
+            impl_->velocity_z,
+            impl_->checkpoint_velocity_z,
+            "cudaMemcpy adaptive restore velocity_z"
+        );
+        impl_->cell_list_built = false;
+        impl_->candidates_built = false;
+        impl_->events_built = false;
+        impl_->collision_batch_built = false;
+        impl_->wall_batch_built = false;
+        impl_->candidate_count = 0;
+        impl_->event_count = 0;
+    };
+
+    while (result.advanced_time < duration - time_tolerance) {
+        save_checkpoint();
+        double attempt_window = std::min(
+            target_window,
+            duration - result.advanced_time
+        );
+        std::size_t refinement_depth = 0;
+
+        while (true) {
+            if (result.attempt_count >= maximum_attempts) {
+                restore_checkpoint();
+                result.stop_reason =
+                    AdaptiveParallelWindowStopReason::attempt_limit;
+                return result;
+            }
+
+            const ParallelWindowStepResult step =
+                advance_parallel_window_step(
+                    grid,
+                    attempt_window,
+                    diameter,
+                    tolerance
+                );
+            ++result.attempt_count;
+            ++result.candidate_rebuild_count;
+            result.horizon_limited_attempt_count +=
+                step.limited_by_candidate_horizon ? 1U : 0U;
+            result.minimum_attempted_window = std::min(
+                result.minimum_attempted_window,
+                step.advanced_time
+            );
+
+            if (step.overlap_pair_count == 0) {
+                result.advanced_time += step.advanced_time;
+                ++result.accepted_step_count;
+                result.maximum_refinement_depth = std::max(
+                    result.maximum_refinement_depth,
+                    refinement_depth
+                );
+                result.minimum_accepted_window = std::min(
+                    result.minimum_accepted_window,
+                    step.advanced_time
+                );
+                result.candidate_pair_count +=
+                    step.candidate_pair_count;
+                result.detected_collision_count +=
+                    step.detected_collision_count;
+                result.accepted_collision_count +=
+                    step.accepted_collision_count;
+                result.contended_collision_count +=
+                    step.contended_collision_count;
+                result.minimum_surface_gap = std::min(
+                    result.minimum_surface_gap,
+                    step.minimum_surface_gap
+                );
+
+                if (
+                    refinement_depth != 0 ||
+                    step.limited_by_candidate_horizon
+                ) {
+                    target_window = step.advanced_time;
+                    successful_steps_at_window = 0;
+                } else if (
+                    attempt_window >=
+                    target_window - time_tolerance
+                ) {
+                    ++successful_steps_at_window;
+                    if (
+                        successful_steps_at_window >=
+                        successful_steps_before_growth
+                    ) {
+                        const double grown_window = std::min(
+                            maximum_window,
+                            growth_factor * target_window
+                        );
+                        if (
+                            grown_window >
+                            target_window + time_tolerance
+                        ) {
+                            target_window = grown_window;
+                            ++result.window_growth_count;
+                        }
+                        successful_steps_at_window = 0;
+                    }
+                }
+                break;
+            }
+
+            restore_checkpoint();
+            ++result.rollback_count;
+            result.rejected_candidate_pair_count +=
+                step.candidate_pair_count;
+            result.rejected_detected_collision_count +=
+                step.detected_collision_count;
+            result.rejected_accepted_collision_count +=
+                step.accepted_collision_count;
+            result.rejected_contended_collision_count +=
+                step.contended_collision_count;
+            result.rejected_overlap_pair_count +=
+                step.overlap_pair_count;
+            result.minimum_rejected_surface_gap = std::min(
+                result.minimum_rejected_surface_gap,
+                step.minimum_surface_gap
+            );
+
+            const auto try_exact_recovery = [&]() {
+                if (exact_recovery_batch_limit == 0) {
+                    return false;
+                }
+                const TimeWindowAdvanceResult recovery =
+                    advance_time_window(
+                        grid,
+                        step.advanced_time,
+                        diameter,
+                        exact_recovery_batch_limit,
+                        tolerance
+                    );
+                if (!recovery.completed()) {
+                    restore_checkpoint();
+                    return false;
+                }
+
+                result.advanced_time += recovery.advanced_time;
+                ++result.accepted_step_count;
+                ++result.exact_recovery_count;
+                result.candidate_rebuild_count +=
+                    recovery.candidate_rebuild_count;
+                result.detected_collision_count +=
+                    recovery.resolved_collision_count;
+                result.accepted_collision_count +=
+                    recovery.resolved_collision_count;
+                result.exact_recovery_batch_count +=
+                    recovery.batch_count;
+                result.exact_recovery_candidate_rebuild_count +=
+                    recovery.candidate_rebuild_count;
+                result.exact_recovery_collision_count +=
+                    recovery.resolved_collision_count;
+                result.
+                    exact_recovery_serialized_conflict_resolution_count +=
+                    recovery.serialized_conflict_resolution_count;
+                result.exact_recovery_reflected_particle_count +=
+                    recovery.reflected_particle_count;
+                result.exact_recovery_reflected_axis_count +=
+                    recovery.reflected_axis_count;
+                result.maximum_refinement_depth = std::max(
+                    result.maximum_refinement_depth,
+                    refinement_depth
+                );
+                result.minimum_accepted_window = std::min(
+                    result.minimum_accepted_window,
+                    recovery.advanced_time
+                );
+                target_window = recovery.advanced_time;
+                successful_steps_at_window = 0;
+                return true;
+            };
+
+            if (
+                step.advanced_time <=
+                minimum_window + time_tolerance
+            ) {
+                if (try_exact_recovery()) {
+                    break;
+                }
+                result.maximum_refinement_depth = std::max(
+                    result.maximum_refinement_depth,
+                    refinement_depth
+                );
+                result.stop_reason =
+                    AdaptiveParallelWindowStopReason::
+                        minimum_window_exhausted;
+                return result;
+            }
+
+            const double refined_window = std::max(
+                minimum_window,
+                0.5 * step.advanced_time
+            );
+            if (
+                refined_window >=
+                step.advanced_time - time_tolerance
+            ) {
+                if (try_exact_recovery()) {
+                    break;
+                }
+                result.stop_reason =
+                    AdaptiveParallelWindowStopReason::
+                        minimum_window_exhausted;
+                return result;
+            }
+            attempt_window = refined_window;
+            ++refinement_depth;
+        }
+    }
+
+    result.advanced_time = duration;
+    result.stop_reason =
+        AdaptiveParallelWindowStopReason::completed;
     return result;
 }
 

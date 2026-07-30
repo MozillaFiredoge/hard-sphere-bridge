@@ -124,9 +124,9 @@ public:
           diameter_squared_(diameter * diameter) {
         for (std::size_t axis = 0; axis < 3; ++axis) {
             const double cell_count =
-                std::ceil(component(domain_.extent, axis) / diameter_);
+                std::floor(component(domain_.extent, axis) / diameter_);
             if (
-                cell_count <= 0.0 ||
+                cell_count < 1.0 ||
                 cell_count >
                     static_cast<double>(std::numeric_limits<std::int64_t>::max())
             ) {
@@ -135,6 +135,9 @@ public:
                 );
             }
             dimensions_[axis] = static_cast<std::int64_t>(cell_count);
+            cell_widths_[axis] =
+                component(domain_.extent, axis) /
+                static_cast<double>(dimensions_[axis]);
         }
 
         cells_.reserve(expected_particles);
@@ -248,7 +251,9 @@ private:
         std::int64_t* coordinates[3]{&result.x, &result.y, &result.z};
 
         for (std::size_t axis = 0; axis < 3; ++axis) {
-            const double raw = std::floor(component(position, axis) / diameter_);
+            const double raw = std::floor(
+                component(position, axis) / cell_widths_[axis]
+            );
             std::int64_t coordinate = static_cast<std::int64_t>(raw);
 
             if (coordinate == dimensions_[axis]) {
@@ -269,6 +274,7 @@ private:
     double diameter_{};
     double diameter_squared_{};
     std::array<std::int64_t, 3> dimensions_{};
+    std::array<double, 3> cell_widths_{};
     std::unordered_map<
         CellKey,
         std::vector<std::size_t>,

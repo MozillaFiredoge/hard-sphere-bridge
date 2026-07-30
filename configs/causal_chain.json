@@ -1,0 +1,39 @@
+{
+  "experiment": "parallel_window_scenario",
+  "schema_version": 1,
+  "scenario": "causal_chain",
+  "units": {
+    "particle_mass": 1.0
+  },
+  "domain": {
+    "extent": [12.0, 4.0, 4.0],
+    "boundary": {
+      "x": "periodic",
+      "y": "periodic",
+      "z": "periodic"
+    }
+  },
+  "particles": {
+    "diameter": 1.0,
+    "states": [
+      {
+        "position": [1.0, 2.0, 2.0],
+        "velocity": [1.0, 0.0, 0.0]
+      },
+      {
+        "position": [2.2, 2.0, 2.0],
+        "velocity": [0.0, 0.0, 0.0]
+      },
+      {
+        "position": [3.4, 2.0, 2.0],
+        "velocity": [0.0, 0.0, 0.0]
+      }
+    ]
+  },
+  "window_convergence": {
+    "duration": 0.8,
+    "maximum_window": 0.5,
+    "refinement_levels": 3,
+    "maximum_steps": 100
+  }
+}

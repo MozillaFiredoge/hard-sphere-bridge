@@ -1,0 +1,34 @@
+{
+  "experiment": "cuda_scaling",
+  "schema_version": 1,
+  "random_seed": 20260730,
+  "units": {
+    "particle_mass": 1.0,
+    "boltzmann_constant": 1.0
+  },
+  "particles": {
+    "base_count": 1024,
+    "level_count": 11,
+    "number_density": 1.1851851851851851,
+    "diameter": 0.5
+  },
+  "initial_condition": {
+    "temperature": 1.0,
+    "bulk_velocity": [0.0, 0.0, 0.0],
+    "maximum_placement_attempts_per_particle": 10000
+  },
+  "grid": {
+    "cell_width_factor": 1.25
+  },
+  "benchmark": {
+    "warmup_duration": 0.002,
+    "measured_duration": 0.01,
+    "maximum_window": 0.001
+  },
+  "adaptive_window": {
+    "minimum_window": 0.0000001,
+    "maximum_attempts": 1000000,
+    "successful_steps_before_growth": 4,
+    "growth_factor": 2.0
+  }
+}

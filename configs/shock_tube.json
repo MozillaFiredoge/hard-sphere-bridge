@@ -34,9 +34,24 @@
     }
   },
   "diagnostics": {
+    "microscopic_particle_samples": 2048,
     "phase_space_x_bins": 128,
     "phase_space_vx_bins": 128,
+    "phase_space_velocity_x_min": -4.0,
+    "phase_space_velocity_x_max": 4.0,
     "macroscopic_x_slabs": 256
+  },
+  "simulation": {
+    "end_time": 0.2,
+    "frame_interval": 0.02,
+    "cell_width_factor": 2.0,
+    "maximum_window": 0.0005,
+    "exact_recovery_batch_limit": 1000
+  },
+  "adaptive_window": {
+    "minimum_window": 0.0000001,
+    "maximum_attempts": 2000000,
+    "successful_steps_before_growth": 4,
+    "growth_factor": 2.0
   }
 }
-
