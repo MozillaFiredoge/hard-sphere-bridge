@@ -1,0 +1,10 @@
+/build/
+/build-*/
+/.cache/
+/compile_commands.json
+
+# Simulation outputs are reproducible artifacts and can be very large.
+/checkpoints/
+/frames/
+/output/
+

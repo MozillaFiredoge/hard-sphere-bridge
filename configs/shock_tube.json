@@ -1,0 +1,42 @@
+{
+  "experiment": "shock_tube",
+  "schema_version": 1,
+  "random_seed": 20260730,
+  "units": {
+    "particle_mass": 1.0,
+    "boltzmann_constant": 1.0,
+    "reference_temperature": 1.0
+  },
+  "domain": {
+    "extent": [4.0, 1.0, 1.0],
+    "boundary": {
+      "x": "reflecting",
+      "y": "periodic",
+      "z": "periodic"
+    }
+  },
+  "particles": {
+    "count": 1048576,
+    "diameter": 0.00415
+  },
+  "initial_condition": {
+    "interface_x": 2.0,
+    "transition_width": 0.08,
+    "left": {
+      "relative_number_density": 1.0,
+      "temperature": 1.0,
+      "bulk_velocity": [0.0, 0.0, 0.0]
+    },
+    "right": {
+      "relative_number_density": 0.25,
+      "temperature": 0.8,
+      "bulk_velocity": [0.0, 0.0, 0.0]
+    }
+  },
+  "diagnostics": {
+    "phase_space_x_bins": 128,
+    "phase_space_vx_bins": 128,
+    "macroscopic_x_slabs": 256
+  }
+}
+
