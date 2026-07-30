@@ -12,7 +12,9 @@ The experiment and validation requirements are defined in
 - CMake 3.24 or newer;
 - a C++20 compiler;
 - Boost 1.75 or newer with Boost.JSON headers;
-- optionally CUDA 12 or newer.
+- optionally CUDA 12 or newer;
+- for offline figures, Python 3 with NumPy and Matplotlib;
+- optionally FFmpeg for MP4 encoding.
 
 ## Build
 
@@ -179,6 +181,26 @@ records attempts, rollbacks, exact recoveries, rejected and committed minimum
 gaps, collisions, energy drift, transverse momentum drift, and per-frame
 simulation time.
 
+Render those five CSV files as synchronized micro-to-macro figures and an MP4:
+
+```bash
+python3 tools/visualize_shock_tube.py \
+  output/shock-tube \
+  --config configs/shock_tube.json
+```
+
+The renderer creates `visualization/macroscopic-evolution.png`, a 1920x1080
+PNG for every recorded time in `visualization/frames/`,
+`visualization/final-overview.png`, `visualization/shock-tube.mp4`, and a
+machine-readable `visualization/manifest.json`. Each video frame places a
+stable 2048-particle microscopic sample, the \(x-v_x\) histogram accumulated
+from the full particle array (with clipped velocity tails reported), and the
+all-particle 256-slab \(n,u_x,T,p\) moments side by side. Axis and color ranges
+are fixed over the complete run. The default video uses two recorded
+simulation frames per second and does not interpolate unrecorded particle
+states. Use `--fps`, `--dpi`, `--output`, or `--no-video` to change packaging
+without changing the underlying diagnostics.
+
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
 
@@ -262,6 +284,8 @@ The current scaffold provides:
   particles, \(x-v_x\), slab fields, and moment-reconstruction checks;
 - a multi-frame shock-tube runner with CPU fallback, CUDA execution, adaptive
   rollback, and a per-interval evolution report;
+- an offline synchronized micro/meso/macro renderer with fixed visual scales,
+  publication PNG output, artifact metadata, and recorded-state MP4 framing;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -278,7 +302,9 @@ parallel-safe collisions, deterministically serializes collision chains, and
 handles reflecting walls until its requested time or an explicit stop
 condition. It still performs a global earliest-event reduction per batch, so
 it is not the final million-particle throughput path. The window-parallel rule
-and fixed/adaptive reports now run on both CPU and CUDA. The next experiment is
-to run the mixed-boundary shock tube on a real GPU, inspect its multi-frame
-macroscopic profiles, and tune the output and window intervals from measured
-rollback and throughput data.
+and fixed/adaptive reports now run on both CPU and CUDA. The mixed-boundary
+million-particle shock tube has completed through \(t=0.2\), and its 11
+synchronized states can now be rendered as the micro/meso/macro video above.
+The next physics comparison is a one-dimensional \(\gamma=5/3\) Euler
+reference evaluated at those same output times; it remains a diagnostic
+overlay and does not participate in particle advancement.
