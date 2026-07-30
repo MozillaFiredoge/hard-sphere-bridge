@@ -1,0 +1,40 @@
+{
+  "experiment": "equilibrium",
+  "schema_version": 1,
+  "random_seed": 20260730,
+  "units": {
+    "particle_mass": 1.0,
+    "boltzmann_constant": 1.0
+  },
+  "domain": {
+    "extent": [10.0, 10.0, 10.0],
+    "boundary": {
+      "x": "periodic",
+      "y": "periodic",
+      "z": "periodic"
+    }
+  },
+  "particles": {
+    "count": 64,
+    "diameter": 0.5
+  },
+  "initial_condition": {
+    "temperature": 1.0,
+    "bulk_velocity": [0.0, 0.0, 0.0]
+  },
+  "run": {
+    "end_time": 5.0
+  },
+  "window_convergence": {
+    "duration": 1.0,
+    "maximum_window": 0.05,
+    "refinement_levels": 3,
+    "maximum_steps": 100000
+  },
+  "diagnostics": {
+    "sample_interval": 0.25,
+    "velocity_x_bins": 64,
+    "velocity_x_min": -4.0,
+    "velocity_x_max": 4.0
+  }
+}

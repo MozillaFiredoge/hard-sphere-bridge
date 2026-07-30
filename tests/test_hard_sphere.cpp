@@ -245,6 +245,13 @@ void test_overlap_is_rejected() {
 
 }  // namespace
 
+void run_event_driven_simulator_tests();
+void run_collision_event_tests();
+void run_diagnostic_tests();
+void run_initialization_tests();
+void run_parallel_window_tests();
+void run_uniform_grid_tests();
+
 int main() {
     using Test = std::pair<std::string_view, std::function<void()>>;
 
@@ -276,6 +283,18 @@ int main() {
         return 1;
     }
 
-    std::cout << tests.size() << " test(s) passed\n";
+    try {
+        run_collision_event_tests();
+        run_diagnostic_tests();
+        run_event_driven_simulator_tests();
+        run_initialization_tests();
+        run_parallel_window_tests();
+        run_uniform_grid_tests();
+    } catch (const std::exception& exception) {
+        std::cerr << exception.what() << '\n';
+        return 1;
+    }
+
+    std::cout << "All hard-sphere tests passed\n";
     return 0;
 }

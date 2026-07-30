@@ -16,13 +16,24 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CTest)
 
+find_package(Boost 1.75 REQUIRED)
+
 add_library(particles_core STATIC
+    src/collision_events.cpp
+    src/config.cpp
+    src/cpu_reference/event_driven_simulator.cpp
+    src/diagnostics.cpp
     src/cpu_reference/hard_sphere.cpp
+    src/initialization.cpp
+    src/parallel_window.cpp
+    src/uniform_grid.cpp
 )
 
 target_include_directories(particles_core
     PUBLIC
         ${PROJECT_SOURCE_DIR}/include
+    SYSTEM PRIVATE
+        ${Boost_INCLUDE_DIRS}
 )
 
 target_compile_features(particles_core PUBLIC cxx_std_20)
@@ -58,6 +69,7 @@ if(PARTICLES_ENABLE_CUDA)
         set(PARTICLES_HAS_CUDA ON)
 
         add_library(particles_cuda STATIC
+            src/cuda/cuda_particle_grid.cu
             src/cuda/cuda_support.cu
         )
 
@@ -72,6 +84,8 @@ if(PARTICLES_ENABLE_CUDA)
             CUDA_EXTENSIONS OFF
             CUDA_SEPARABLE_COMPILATION ON
         )
+
+        target_link_libraries(particles_cuda PUBLIC particles_core)
     else()
         message(WARNING
             "PARTICLES_ENABLE_CUDA is ON, but no CUDA compiler was found. "
@@ -95,15 +109,39 @@ endif()
 
 if(BUILD_TESTING)
     add_executable(particles_tests
+        tests/test_collision_events.cpp
+        tests/test_diagnostics.cpp
+        tests/test_event_driven_simulator.cpp
         tests/test_hard_sphere.cpp
+        tests/test_initialization.cpp
+        tests/test_parallel_window.cpp
+        tests/test_uniform_grid.cpp
     )
 
     target_link_libraries(particles_tests PRIVATE particles_core)
+    target_compile_definitions(particles_tests PRIVATE
+        PARTICLES_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    )
 
     add_test(
         NAME hard_sphere_unit_tests
         COMMAND particles_tests
     )
+
+    if(PARTICLES_HAS_CUDA)
+        add_executable(particles_cuda_tests
+            tests/test_cuda_particle_grid.cpp
+        )
+        target_link_libraries(particles_cuda_tests PRIVATE particles_cuda)
+
+        add_test(
+            NAME cuda_particle_grid_tests
+            COMMAND particles_cuda_tests
+        )
+        set_tests_properties(cuda_particle_grid_tests PROPERTIES
+            SKIP_RETURN_CODE 77
+        )
+    endif()
 endif()
 
 message(STATUS "Particles CUDA support: ${PARTICLES_HAS_CUDA}")
