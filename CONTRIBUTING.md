@@ -47,6 +47,8 @@ python tools/euler_reference.py \
   --self-test \
   --grid-check \
   configs/shock_tube.json
+python tools/analyze_wave_kinematics.py --self-test
+python tools/analyze_multiseed_fields.py --self-test
 ```
 
 On a CUDA machine:

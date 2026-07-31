@@ -19,6 +19,22 @@ The experiment and validation requirements are in
 [`docs/experiment-design.md`](docs/experiment-design.md); mathematical context
 and citations are in [`docs/references.md`](docs/references.md).
 
+## From particles to fields
+
+![A synchronized million-particle shock-tube frame showing microscopic hard spheres, empirical phase space, and macroscopic fields](docs/assets/micro-meso-macro-overview.png)
+
+This frame comes from one \(N=1{,}048{,}576\) hard-sphere state at \(t=0.20\).
+The left panel shows a stable 2,048-particle sample, the center panel bins the
+complete particle array into empirical \(x-v_x\) phase space, and the right
+panel takes particle moments and overlays an independently evolved ideal Euler
+reference. No fluid solver advances or corrects the particles.
+
+The completed run reached \(t=0.20\) with 4,522,091 accepted collisions,
+positive committed surface gaps, and maximum relative kinetic-energy drift
+\(4.72\times10^{-14}\). Its first wave-kinematics comparison also passes the
+configured position, speed, and coarse-graining checks; see
+[the recorded results](docs/results/wave-kinematics/summary.json).
+
 ## Scientific status
 
 This is an experimental numerical project, not a proof of Hilbert's sixth
@@ -35,8 +51,9 @@ problem and not a direct deterministic solver for the Boltzmann equation.
 - The Euler solver is an independent ideal-gas comparison and never changes a
   particle trajectory.
 - The first million-particle shock tube is one configured realization.
-  Particle-count, Knudsen-number, bin-size, and multi-seed field studies remain
-  part of the research roadmap.
+  Its first coarse-graining sensitivity scan is complete; particle-count,
+  Knudsen-number, and multi-seed field studies remain part of the research
+  roadmap.
 
 See `CONTRIBUTING.md` for the evidence required when changing collision or
 interpretation logic.
@@ -286,6 +303,44 @@ python3 tools/euler_reference.py \
   configs/shock_tube.json
 ```
 
+## Wave-kinematics experiment
+
+After rendering the complete run, extract the rarefaction-gradient, contact,
+and compression markers independently from the particle and Euler fields:
+
+```bash
+python3 tools/analyze_wave_kinematics.py \
+  output/shock-tube/macroscopic.csv \
+  output/shock-tube/visualization/euler-reference.csv \
+  --simulation-config configs/shock_tube.json \
+  --analysis-config configs/wave_kinematics.json \
+  --output output/shock-tube/wave-kinematics
+```
+
+Both profiles use the same physical smoothing length. The marker definitions,
+late-time fit interval, sensitivity values, and acceptance limits are frozen
+in [`configs/wave_kinematics.json`](configs/wave_kinematics.json). Propagation
+speeds are fitted as \(x(t)=x_0+ct\) over five synchronized frames from
+\(t=0.12\) through \(0.20\).
+
+| marker | hard spheres \(c\) | ideal Euler \(c\) | relative speed difference | mean position difference |
+|---|---:|---:|---:|---:|
+| rarefaction gradient | -0.833 | -0.797 | 4.5% | 0.0062 |
+| contact | +0.784 | +0.698 | 12.3% | 0.0143 |
+| compression | +1.661 | +1.689 | 1.7% | 0.0151 |
+
+![Particle and Euler wave-marker trajectories and position differences](docs/results/wave-kinematics/wave-kinematics.png)
+
+These markers are reproducible coarse-grained diagnostics, not claims of exact
+discontinuity location. The contact marker is the most noise-sensitive: the
+0.06, 0.07, and 0.08 smoothing lengths pass all configured checks, while 0.04
+and 0.05 exceed the 20% contact-speed limit. The full
+[sensitivity plot](docs/results/wave-kinematics/smoothing-sensitivity.png),
+[position rows](docs/results/wave-kinematics/wave-positions.csv), and
+[speed summary](docs/results/wave-kinematics/wave-speeds.csv) are checked in.
+This first result is exploratory; its definitions and thresholds are now
+frozen for the future multi-seed and scale scans.
+
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
 
@@ -400,6 +455,8 @@ The current scaffold provides:
   publication PNG output, artifact metadata, and recorded-state MP4 framing;
 - a conservative one-dimensional \(\gamma=5/3\) Euler numerical reference,
   grid-refinement check, synchronized overlays, and per-field error reports;
+- independent rarefaction/contact/compression marker extraction, constrained
+  propagation-speed fits, and a coarse-graining sensitivity report;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -420,6 +477,7 @@ and fixed/adaptive reports now run on both CPU and CUDA. The mixed-boundary
 million-particle shock tube has completed through \(t=0.2\), and its 11
 synchronized states can now be rendered as the micro/meso/macro video above.
 The one-dimensional \(\gamma=5/3\) Euler reference is evaluated at those same
-output times as a diagnostic-only overlay. The next comparison step is to
-extract particle/Euler wave locations and propagation speeds, then repeat the
-measurement across particle-count and Knudsen-number scans.
+output times as a diagnostic-only overlay. Particle/Euler wave locations and
+propagation speeds now have a first passing comparison. The next experiment is
+to add multi-seed uncertainty bands, then repeat the measurement across
+particle-count and Knudsen-number scans.

@@ -99,6 +99,10 @@ jobs:
           --self-test
           --grid-check
           configs/shock_tube.json
+      - name: Validate wave-marker extraction
+        run: python tools/analyze_wave_kinematics.py --self-test
+      - name: Validate multi-seed statistics
+        run: python tools/analyze_multiseed_fields.py --self-test
 
   visualization:
     name: End-to-end visualization smoke test
@@ -141,3 +145,21 @@ jobs:
           test -s build/ci-visualization-output/euler-reference.csv
           test -s build/ci-visualization-output/euler-comparison.csv
           test -s build/ci-visualization-output/manifest.json
+      - name: Run independent-seed smoke batch
+        run: >
+          python tools/run_multiseed_shock_tube.py
+          configs/shock_tube_multiseed_smoke.json
+          --executable build/ci-visualization/particles_cli
+          --output build/ci-multiseed
+      - name: Build multi-seed confidence bands
+        run: >
+          python tools/analyze_multiseed_fields.py
+          configs/shock_tube_multiseed_smoke.json
+          build/ci-multiseed
+      - name: Check multi-seed artifacts
+        run: |
+          test -s build/ci-multiseed/batch-summary.json
+          test -s build/ci-multiseed/statistics/field-bands.csv
+          test -s build/ci-multiseed/statistics/frame-summary.csv
+          test -s build/ci-multiseed/statistics/summary.json
+          test -s build/ci-multiseed/statistics/final-field-bands.png

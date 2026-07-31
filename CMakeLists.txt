@@ -167,7 +167,10 @@ install(
 )
 install(
     PROGRAMS
+        tools/analyze_multiseed_fields.py
+        tools/analyze_wave_kinematics.py
         tools/euler_reference.py
+        tools/run_multiseed_shock_tube.py
         tools/visualize_shock_tube.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hard-sphere-bridge/tools
 )
@@ -181,9 +184,11 @@ install(
         CONTRIBUTING.md
         RELEASE_CHECKLIST.md
         SECURITY.md
-        docs/experiment-design.md
-        docs/references.md
     DESTINATION ${PARTICLES_INSTALL_DOCDIR}
+)
+install(
+    DIRECTORY docs/
+    DESTINATION ${PARTICLES_INSTALL_DOCDIR}/docs
 )
 
 if(BUILD_TESTING)

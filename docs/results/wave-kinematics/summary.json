@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "method": {
+    "particle_and_euler_processed_independently": true,
+    "analysis_tool_sha256": "21f463edba887cba514e54048e1714b1d78b2988af9042ed8f85bc40d54fd277",
+    "smoothing_length": 0.06,
+    "centroid_weight_power": 2.0,
+    "speed_fit": "x(t) = interface_x + speed * t",
+    "interface_x": 2.0,
+    "fit_start_time": 0.12,
+    "fit_end_time": 0.2,
+    "sample_count": 5
+  },
+  "inputs": {
+    "particle_csv": {
+      "path": "output/shock-tube-recovery-check/macroscopic.csv",
+      "sha256": "e4acb83de2111e97b310fca8a0c841722cb62dfa7eb7fdef2942b514eec40c1b"
+    },
+    "euler_csv": {
+      "path": "output/shock-tube-recovery-check/visualization/euler-reference.csv",
+      "sha256": "899512b25f63bf9eac2992d5e78919e6e82169ced4edfabdaed96bbe73d61881"
+    },
+    "simulation_config": {
+      "path": "configs/shock_tube.json",
+      "sha256": "558dba855fc350829f224f44142b5c0eeb3a0a2c11aae4e580754743adeb3c49"
+    },
+    "analysis_config": {
+      "path": "configs/wave_kinematics.json",
+      "sha256": "01e6e8902b11f5779e6add3508e0dc0e11e3648489cc342c628a0c11f5e467f3"
+    }
+  },
+  "acceptance": {
+    "maximum_mean_absolute_position_error": 0.05,
+    "maximum_relative_speed_error": 0.2,
+    "maximum_particle_fit_rmse": 0.03
+  },
+  "features": {
+    "rarefaction": {
+      "particle_speed": -0.8331792079553167,
+      "euler_speed": -0.7970553688135968,
+      "relative_speed_error": 0.04532161824026054,
+      "particle_fit_rmse": 0.0034715763169267584,
+      "euler_fit_rmse": 0.0019501965643928983,
+      "mean_absolute_position_error": 0.006211209599531475,
+      "maximum_absolute_position_error": 0.007939475019602238,
+      "passed": true
+    },
+    "contact": {
+      "particle_speed": 0.7839928542106516,
+      "euler_speed": 0.6980109100768019,
+      "relative_speed_error": 0.12318137566702082,
+      "particle_fit_rmse": 0.0066948616109621314,
+      "euler_fit_rmse": 0.0038834071983414537,
+      "mean_absolute_position_error": 0.014272829301103851,
+      "maximum_absolute_position_error": 0.02477841240036005,
+      "passed": true
+    },
+    "compression": {
+      "particle_speed": 1.6608330920722483,
+      "euler_speed": 1.6892547372217726,
+      "relative_speed_error": 0.01682496104540624,
+      "particle_fit_rmse": 0.015958145166708036,
+      "euler_fit_rmse": 0.0030045742869521347,
+      "mean_absolute_position_error": 0.015056390986619483,
+      "maximum_absolute_position_error": 0.028685357450437987,
+      "passed": true
+    }
+  },
+  "smoothing_sensitivity": [
+    {
+      "smoothing_length": 0.04,
+      "feature": "rarefaction",
+      "particle_speed": -0.8477816507209167,
+      "euler_speed": -0.783120684112765,
+      "relative_speed_error": 0.08256832940303345,
+      "mean_absolute_position_error": 0.01052763783946169,
+      "particle_fit_rmse": 0.004344492123634592,
+      "feature_passed": true,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.04,
+      "feature": "contact",
+      "particle_speed": 0.8470924574377857,
+      "euler_speed": 0.69394115387899,
+      "relative_speed_error": 0.22069782531661514,
+      "mean_absolute_position_error": 0.02742313106755816,
+      "particle_fit_rmse": 0.017027968998404877,
+      "feature_passed": false,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.04,
+      "feature": "compression",
+      "particle_speed": 1.6256720150360906,
+      "euler_speed": 1.6613301100737463,
+      "relative_speed_error": 0.02146358199459399,
+      "mean_absolute_position_error": 0.029478894428871437,
+      "particle_fit_rmse": 0.02963759598898495,
+      "feature_passed": true,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.05,
+      "feature": "rarefaction",
+      "particle_speed": -0.8477759451138004,
+      "euler_speed": -0.7898211560671871,
+      "relative_speed_error": 0.07337710391956548,
+      "mean_absolute_position_error": 0.009463898600774812,
+      "particle_fit_rmse": 0.004522476010690407,
+      "feature_passed": true,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.05,
+      "feature": "contact",
+      "particle_speed": 0.8363462075864943,
+      "euler_speed": 0.6958415272964863,
+      "relative_speed_error": 0.20192051606333822,
+      "mean_absolute_position_error": 0.02450882607964262,
+      "particle_fit_rmse": 0.012866007797435804,
+      "feature_passed": false,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.05,
+      "feature": "compression",
+      "particle_speed": 1.654483556270039,
+      "euler_speed": 1.675826378836391,
+      "relative_speed_error": 0.012735700330228283,
+      "mean_absolute_position_error": 0.022444907134211167,
+      "particle_fit_rmse": 0.02271784758845177,
+      "feature_passed": true,
+      "scale_passed": false
+    },
+    {
+      "smoothing_length": 0.06,
+      "feature": "rarefaction",
+      "particle_speed": -0.8331792079553167,
+      "euler_speed": -0.7970553688135968,
+      "relative_speed_error": 0.04532161824026054,
+      "mean_absolute_position_error": 0.006211209599531475,
+      "particle_fit_rmse": 0.0034715763169267584,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.06,
+      "feature": "contact",
+      "particle_speed": 0.7839928542106516,
+      "euler_speed": 0.6980109100768019,
+      "relative_speed_error": 0.12318137566702082,
+      "mean_absolute_position_error": 0.014272829301103851,
+      "particle_fit_rmse": 0.0066948616109621314,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.06,
+      "feature": "compression",
+      "particle_speed": 1.6608330920722483,
+      "euler_speed": 1.6892547372217726,
+      "relative_speed_error": 0.01682496104540624,
+      "mean_absolute_position_error": 0.015056390986619483,
+      "particle_fit_rmse": 0.015958145166708036,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.07,
+      "feature": "rarefaction",
+      "particle_speed": -0.83459904118427,
+      "euler_speed": -0.805484443351683,
+      "relative_speed_error": 0.036145450198192375,
+      "mean_absolute_position_error": 0.0051173492203300695,
+      "particle_fit_rmse": 0.004096663173952079,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.07,
+      "feature": "contact",
+      "particle_speed": 0.7828448153820563,
+      "euler_speed": 0.700728845634896,
+      "relative_speed_error": 0.11718651266990306,
+      "mean_absolute_position_error": 0.014224962298036914,
+      "particle_fit_rmse": 0.006567445500100824,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.07,
+      "feature": "compression",
+      "particle_speed": 1.6598004560942217,
+      "euler_speed": 1.7026267331353393,
+      "relative_speed_error": 0.025153062739860926,
+      "mean_absolute_position_error": 0.015352459746557034,
+      "particle_fit_rmse": 0.015944080082071255,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.08,
+      "feature": "rarefaction",
+      "particle_speed": -0.8372686107901328,
+      "euler_speed": -0.81407056511501,
+      "relative_speed_error": 0.028496357280582283,
+      "mean_absolute_position_error": 0.004127624018719178,
+      "particle_fit_rmse": 0.004766406037865588,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.08,
+      "feature": "contact",
+      "particle_speed": 0.7824203055260829,
+      "euler_speed": 0.710431815024315,
+      "relative_speed_error": 0.10133061186076538,
+      "mean_absolute_position_error": 0.01271418670836919,
+      "particle_fit_rmse": 0.006516035518663581,
+      "feature_passed": true,
+      "scale_passed": true
+    },
+    {
+      "smoothing_length": 0.08,
+      "feature": "compression",
+      "particle_speed": 1.6425959288400427,
+      "euler_speed": 1.715798201842824,
+      "relative_speed_error": 0.042663684414728724,
+      "mean_absolute_position_error": 0.018591744440470404,
+      "particle_fit_rmse": 0.01601909374388636,
+      "feature_passed": true,
+      "scale_passed": true
+    }
+  ]
+}

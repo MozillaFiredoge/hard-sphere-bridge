@@ -9,16 +9,21 @@ and releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Reproducible rarefaction/contact/compression marker extraction, constrained
+  propagation-speed fits, coarse-graining sensitivity output, and publication
+  figures for the million-particle shock tube.
+- Resumable independent-seed shock-tube batches and Student-t confidence bands
+  for macroscopic particle fields against the Euler reference.
+
+## [0.1.0] - 2026-07-31
+
+### Added
+
 - Open-source project metadata, contribution guidance, security policy, issue
   templates, CMake presets, installation rules, and continuous integration.
 - Explicit CLI help, version reporting, smoke command, and unknown-command
   rejection.
 - Reproducible Python dependency declaration and visualization metadata.
-
-## [0.1.0] - Unreleased
-
-### Added
-
 - CPU exact event-driven hard-sphere reference.
 - CUDA structure-of-arrays storage, uniform cell lists, candidate generation,
   continuous collision detection, and deterministic event handling.

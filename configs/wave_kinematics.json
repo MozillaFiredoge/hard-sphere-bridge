@@ -1,0 +1,29 @@
+{
+  "experiment": "wave_kinematics",
+  "schema_version": 1,
+  "gamma": 1.6666666666666667,
+  "smoothing_length": 0.06,
+  "centroid_weight_power": 2.0,
+  "features": {
+    "rarefaction_min_x": 1.2,
+    "rarefaction_interface_margin": 0.01,
+    "rarefaction_centroid_half_width": 0.1,
+    "shock_interface_margin": 0.02,
+    "right_max_x": 2.8,
+    "shock_centroid_half_width": 0.08,
+    "contact_interface_margin": 0.0,
+    "contact_shock_separation": 0.06,
+    "contact_centroid_half_width": 0.06
+  },
+  "fit": {
+    "start_time": 0.12
+  },
+  "sensitivity": {
+    "smoothing_lengths": [0.04, 0.05, 0.06, 0.07, 0.08]
+  },
+  "acceptance": {
+    "maximum_mean_absolute_position_error": 0.05,
+    "maximum_relative_speed_error": 0.2,
+    "maximum_particle_fit_rmse": 0.03
+  }
+}

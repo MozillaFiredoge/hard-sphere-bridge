@@ -1,0 +1,42 @@
+{
+  "experiment": "shock_tube_multiseed",
+  "schema_version": 1,
+  "base_config": "shock_tube.json",
+  "seeds": [
+    20260730,
+    20260731,
+    20260732,
+    20260733,
+    20260734,
+    20260735,
+    20260736,
+    20260737
+  ],
+  "required_backend": "cuda",
+  "overrides": {
+    "particles": {
+      "count": 65536,
+      "diameter": 0.0104573447141
+    },
+    "diagnostics": {
+      "microscopic_particle_samples": 512,
+      "phase_space_x_bins": 64,
+      "phase_space_vx_bins": 64,
+      "macroscopic_x_slabs": 128
+    },
+    "simulation": {
+      "end_time": 0.2,
+      "frame_interval": 0.02,
+      "maximum_window": 0.0005
+    }
+  },
+  "statistics": {
+    "confidence_level": 0.95,
+    "euler_cells": 2048,
+    "minimum_completed_seeds": 8
+  },
+  "acceptance": {
+    "maximum_absolute_relative_energy_drift": 1e-10,
+    "minimum_committed_surface_gap": -1e-10
+  }
+}
