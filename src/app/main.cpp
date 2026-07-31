@@ -30,7 +30,55 @@
 #include "particles/cuda_support.hpp"
 #endif
 
+#ifndef PARTICLES_VERSION
+#define PARTICLES_VERSION "development"
+#endif
+
 namespace {
+
+void print_usage(std::ostream& output) {
+    output
+        << "Hard-Sphere Bridge " << PARTICLES_VERSION << '\n'
+        << "Usage: particles_cli <command> [arguments]\n\n"
+        << "Commands:\n"
+        << "  smoke\n"
+        << "      Run deterministic two-sphere and collision-chain checks.\n"
+        << "  equilibrium [CONFIG] [OUTPUT_DIR]\n"
+        << "      Run the small event-driven equilibrium reference.\n"
+        << "  cuda-grid [CONFIG]\n"
+        << "      Compare CUDA grid/event operations with the CPU reference.\n"
+        << "  window-convergence [CONFIG] [OUTPUT_CSV]\n"
+        << "      Compare fixed parallel windows with the exact reference.\n"
+        << "  window-scenario [CONFIG] [OUTPUT_CSV]\n"
+        << "      Run the deterministic causal-chain convergence case.\n"
+        << "  window-stress [CONFIG] [OUTPUT_DIR]\n"
+        << "      Run the multi-seed fixed-window stress experiment.\n"
+        << "  window-adaptive-stress [CONFIG] [OUTPUT_DIR]\n"
+        << "      Run the adaptive rollback stress experiment.\n"
+        << "  cuda-scaling [CONFIG] [OUTPUT_CSV]\n"
+        << "      Run the CUDA weak-scaling benchmark.\n"
+        << "  multiscale-snapshot [CONFIG] [OUTPUT_DIR]\n"
+        << "      Export synchronized micro/meso/macro diagnostics.\n"
+        << "  shock-tube [CONFIG] [OUTPUT_DIR] [END_TIME]\n"
+        << "      Evolve the mixed-boundary shock-tube experiment.\n\n"
+        << "Options:\n"
+        << "  -h, --help     Show this help and exit.\n"
+        << "  --version      Show the project version and exit.\n\n"
+        << "No command is run implicitly. Use 'smoke' for a quick check.\n";
+}
+
+void reject_extra_arguments(
+    int argc,
+    int maximum,
+    std::string_view command
+) {
+    if (argc > maximum) {
+        throw std::invalid_argument(
+            "Too many arguments for command '" + std::string{command} +
+            "'. Run particles_cli --help for usage."
+        );
+    }
+}
 
 int run_window_convergence(
     const std::filesystem::path& config_path,
@@ -1503,10 +1551,31 @@ int run_cuda_grid_check(const std::filesystem::path& config_path) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 1) {
+            print_usage(std::cout);
+            return 0;
+        }
+
+        const std::string_view command{argv[1]};
+        if (command == "--help" || command == "-h" || command == "help") {
+            reject_extra_arguments(argc, 2, command);
+            print_usage(std::cout);
+            return 0;
+        }
+        if (command == "--version") {
+            reject_extra_arguments(argc, 2, command);
+            std::cout << "particles_cli " << PARTICLES_VERSION << '\n';
+            return 0;
+        }
+        if (command == "smoke") {
+            reject_extra_arguments(argc, 2, command);
+            return run_smoke_test();
+        }
+
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "shock-tube"
+            command == "shock-tube"
         ) {
+            reject_extra_arguments(argc, 5, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1529,9 +1598,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "multiscale-snapshot"
+            command == "multiscale-snapshot"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1551,9 +1620,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "cuda-scaling"
+            command == "cuda-scaling"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1573,9 +1642,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "window-adaptive-stress"
+            command == "window-adaptive-stress"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1596,9 +1665,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "window-stress"
+            command == "window-stress"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1618,9 +1687,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "window-scenario"
+            command == "window-scenario"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1640,9 +1709,9 @@ int main(int argc, char** argv) {
         }
 
         if (
-            argc >= 2 &&
-            std::string_view{argv[1]} == "window-convergence"
+            command == "window-convergence"
         ) {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1656,7 +1725,8 @@ int main(int argc, char** argv) {
             return run_window_convergence(config_path, output_path);
         }
 
-        if (argc >= 2 && std::string_view{argv[1]} == "equilibrium") {
+        if (command == "equilibrium") {
+            reject_extra_arguments(argc, 4, command);
             const std::filesystem::path config_path =
                 argc >= 3
                     ? std::filesystem::path{argv[2]}
@@ -1668,7 +1738,8 @@ int main(int argc, char** argv) {
             return run_equilibrium(config_path, output_directory);
         }
 
-        if (argc >= 2 && std::string_view{argv[1]} == "cuda-grid") {
+        if (command == "cuda-grid") {
+            reject_extra_arguments(argc, 3, command);
 #if PARTICLES_HAS_CUDA
             const std::filesystem::path config_path =
                 argc >= 3
@@ -1682,7 +1753,10 @@ int main(int argc, char** argv) {
 #endif
         }
 
-        return run_smoke_test();
+        std::cerr << "particles_cli: unknown command '" << command
+                  << "'.\n\n";
+        print_usage(std::cerr);
+        return 2;
     } catch (const std::exception& exception) {
         std::cerr << "particles_cli: " << exception.what() << '\n';
         return 1;

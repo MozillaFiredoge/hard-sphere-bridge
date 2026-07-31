@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.csv text
+*.json text
+*.md text
+*.py text
+*.cu text
+*.cpp text
+*.hpp text
+*.yml text
+*.yaml text
+
+*.gif binary
+*.jpg binary
+*.mp4 binary
+*.png binary

@@ -9,6 +9,33 @@ project(
 
 option(PARTICLES_ENABLE_CUDA "Build CUDA components when a CUDA compiler is available" ON)
 
+set(PARTICLES_GIT_COMMIT "unknown")
+set(PARTICLES_GIT_DIRTY 0)
+find_package(Git QUIET)
+if(Git_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        RESULT_VARIABLE PARTICLES_GIT_RESULT
+        OUTPUT_VARIABLE PARTICLES_GIT_OUTPUT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(PARTICLES_GIT_RESULT EQUAL 0)
+        set(PARTICLES_GIT_COMMIT "${PARTICLES_GIT_OUTPUT}")
+    endif()
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} status --porcelain
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        OUTPUT_VARIABLE PARTICLES_GIT_STATUS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT PARTICLES_GIT_STATUS STREQUAL "")
+        set(PARTICLES_GIT_DIRTY 1)
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -102,13 +129,62 @@ add_executable(particles_cli
 )
 
 target_link_libraries(particles_cli PRIVATE particles_core)
+target_compile_definitions(particles_cli PRIVATE
+    PARTICLES_VERSION="${PROJECT_VERSION}"
+    PARTICLES_BUILD_TYPE="$<CONFIG>"
+    PARTICLES_CXX_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}"
+    PARTICLES_CXX_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
+    PARTICLES_GIT_COMMIT="${PARTICLES_GIT_COMMIT}"
+    PARTICLES_GIT_DIRTY=${PARTICLES_GIT_DIRTY}
+)
 
 if(PARTICLES_HAS_CUDA)
     target_link_libraries(particles_cli PRIVATE particles_cuda)
-    target_compile_definitions(particles_cli PRIVATE PARTICLES_HAS_CUDA=1)
+    target_compile_definitions(particles_cli PRIVATE
+        PARTICLES_HAS_CUDA=1
+        PARTICLES_CUDA_COMPILER_VERSION="${CMAKE_CUDA_COMPILER_VERSION}"
+    )
 else()
-    target_compile_definitions(particles_cli PRIVATE PARTICLES_HAS_CUDA=0)
+    target_compile_definitions(particles_cli PRIVATE
+        PARTICLES_HAS_CUDA=0
+        PARTICLES_CUDA_COMPILER_VERSION="disabled"
+    )
 endif()
+
+include(GNUInstallDirs)
+set(
+    PARTICLES_INSTALL_DOCDIR
+    "${CMAKE_INSTALL_DATADIR}/doc/hard-sphere-bridge"
+)
+
+install(
+    TARGETS particles_cli
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(
+    DIRECTORY configs/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hard-sphere-bridge/configs
+)
+install(
+    PROGRAMS
+        tools/euler_reference.py
+        tools/visualize_shock_tube.py
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hard-sphere-bridge/tools
+)
+install(
+    FILES
+        LICENSE
+        README.md
+        CHANGELOG.md
+        CITATION.cff
+        CODE_OF_CONDUCT.md
+        CONTRIBUTING.md
+        RELEASE_CHECKLIST.md
+        SECURITY.md
+        docs/experiment-design.md
+        docs/references.md
+    DESTINATION ${PARTICLES_INSTALL_DOCDIR}
+)
 
 if(BUILD_TESTING)
     add_executable(particles_tests
@@ -129,6 +205,30 @@ if(BUILD_TESTING)
     add_test(
         NAME hard_sphere_unit_tests
         COMMAND particles_tests
+    )
+
+    add_test(
+        NAME particles_cli_help
+        COMMAND particles_cli --help
+    )
+    set_tests_properties(particles_cli_help PROPERTIES
+        PASS_REGULAR_EXPRESSION "Usage: particles_cli"
+    )
+
+    add_test(
+        NAME particles_cli_version
+        COMMAND particles_cli --version
+    )
+    set_tests_properties(particles_cli_version PROPERTIES
+        PASS_REGULAR_EXPRESSION "particles_cli ${PROJECT_VERSION}"
+    )
+
+    add_test(
+        NAME particles_cli_rejects_unknown_command
+        COMMAND particles_cli definitely-not-a-command
+    )
+    set_tests_properties(particles_cli_rejects_unknown_command PROPERTIES
+        WILL_FAIL TRUE
     )
 
     if(PARTICLES_HAS_CUDA)

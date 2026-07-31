@@ -10,3 +10,10 @@
 
 *.pyc
 __pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local editor and platform metadata.
+.DS_Store
+Thumbs.db

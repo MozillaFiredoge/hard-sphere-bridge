@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpp:
+    name: C++ (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            cc: gcc
+            cxx: g++
+          - name: Clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost-all-dev ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build/ci-cpp -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DPARTICLES_ENABLE_CUDA=OFF
+      - name: Build
+        run: cmake --build build/ci-cpp --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci-cpp --output-on-failure
+      - name: Run CPU smoke experiments
+        run: |
+          ./build/ci-cpp/particles_cli smoke
+          ./build/ci-cpp/particles_cli equilibrium \
+            configs/equilibrium.json \
+            build/ci-equilibrium
+          ./build/ci-cpp/particles_cli shock-tube \
+            configs/shock_tube_smoke.json \
+            build/ci-shock-tube
+
+  sanitizer:
+    name: ASan and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost-all-dev ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build/ci-sanitize -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPARTICLES_ENABLE_CUDA=OFF
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build/ci-sanitize --parallel 2
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --test-dir build/ci-sanitize --output-on-failure
+
+  python:
+    name: Python diagnostics
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-visualization.txt
+      - name: Install Python dependencies
+        run: python -m pip install --requirement requirements-visualization.txt
+      - name: Compile scripts
+        run: python -m py_compile tools/*.py
+      - name: Validate Euler reference
+        run: >
+          python tools/euler_reference.py
+          --self-test
+          --grid-check
+          configs/shock_tube.json
+
+  visualization:
+    name: End-to-end visualization smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-visualization.txt
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost-all-dev ninja-build
+          python -m pip install --requirement requirements-visualization.txt
+      - name: Build CPU runner
+        run: |
+          cmake -S . -B build/ci-visualization -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPARTICLES_ENABLE_CUDA=OFF
+          cmake --build build/ci-visualization --parallel 2
+      - name: Generate smoke diagnostics
+        run: >
+          ./build/ci-visualization/particles_cli shock-tube
+          configs/shock_tube_smoke.json
+          build/ci-visualization-data
+      - name: Render synchronized views
+        run: >
+          python tools/visualize_shock_tube.py
+          build/ci-visualization-data
+          --config configs/shock_tube_smoke.json
+          --output build/ci-visualization-output
+          --dpi 30
+          --no-video
+      - name: Check generated artifacts
+        run: |
+          test -s build/ci-visualization-output/final-overview.png
+          test -s build/ci-visualization-output/macroscopic-evolution.png
+          test -s build/ci-visualization-output/euler-reference.csv
+          test -s build/ci-visualization-output/euler-comparison.csv
+          test -s build/ci-visualization-output/manifest.json

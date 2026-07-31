@@ -1,0 +1,37 @@
+name: Scientific validation
+description: Report a reproducibility, convergence, or interpretation issue.
+title: "[Validation]: "
+labels: ["validation"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Conservation or penetration
+        - CPU/CUDA disagreement
+        - Window convergence
+        - Statistical reproducibility
+        - Euler comparison
+        - Scientific interpretation
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: Claim being checked
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction and evidence
+      description: Include config, seed, commit, commands, CSV rows, and uncertainty.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected acceptance criterion
+    validations:
+      required: true

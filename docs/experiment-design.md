@@ -982,6 +982,14 @@ RTX 3050 Ti 上的首个完整 \(N=2^{20}\) 运行已经输出
 
 同一配置应支持多个随机种子，以区分系统性数值误差和有限粒子统计涨落。
 
+当前 `shock-tube` 命令会把原始输入复制为 `input-config.json`，并生成
+`run-metadata.json`，记录项目版本、配置时的 Git commit/dirty 状态、
+编译器、构建类型、CUDA 编译版本、运行后端、随机种子、有效终止时间以及
+可见 GPU 信息。离线可视化的 `manifest.json` 另行记录五类源 CSV 的
+SHA-256、配置和渲染器哈希、渲染时 Git 状态、Python/NumPy/Matplotlib/
+FFmpeg 版本及平台信息。旧的模拟输出如果没有 `run-metadata.json`，只能
+证明渲染阶段环境，不能反推模拟阶段所用 commit；发布数据时必须明确区分。
+
 ## 12. 验证矩阵
 
 ### 12.1 单元测试

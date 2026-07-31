@@ -9,6 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -24,6 +25,34 @@
 #include "particles/cuda_support.hpp"
 #endif
 
+#ifndef PARTICLES_VERSION
+#define PARTICLES_VERSION "development"
+#endif
+
+#ifndef PARTICLES_BUILD_TYPE
+#define PARTICLES_BUILD_TYPE "unknown"
+#endif
+
+#ifndef PARTICLES_CXX_COMPILER_ID
+#define PARTICLES_CXX_COMPILER_ID "unknown"
+#endif
+
+#ifndef PARTICLES_CXX_COMPILER_VERSION
+#define PARTICLES_CXX_COMPILER_VERSION "unknown"
+#endif
+
+#ifndef PARTICLES_CUDA_COMPILER_VERSION
+#define PARTICLES_CUDA_COMPILER_VERSION "unknown"
+#endif
+
+#ifndef PARTICLES_GIT_COMMIT
+#define PARTICLES_GIT_COMMIT "unknown"
+#endif
+
+#ifndef PARTICLES_GIT_DIRTY
+#define PARTICLES_GIT_DIRTY 0
+#endif
+
 namespace particles::app {
 namespace {
 
@@ -33,6 +62,143 @@ namespace {
     return std::chrono::duration<double>(
         std::chrono::steady_clock::now() - start
     ).count();
+}
+
+void write_json_string(
+    std::ostream& output,
+    std::string_view value
+) {
+    output << '"';
+    for (const char character : value) {
+        switch (character) {
+            case '"':
+                output << "\\\"";
+                break;
+            case '\\':
+                output << "\\\\";
+                break;
+            case '\b':
+                output << "\\b";
+                break;
+            case '\f':
+                output << "\\f";
+                break;
+            case '\n':
+                output << "\\n";
+                break;
+            case '\r':
+                output << "\\r";
+                break;
+            case '\t':
+                output << "\\t";
+                break;
+            default:
+                if (
+                    static_cast<unsigned char>(character) < 0x20U
+                ) {
+                    output << '?';
+                } else {
+                    output << character;
+                }
+                break;
+        }
+    }
+    output << '"';
+}
+
+void write_run_metadata(
+    const std::filesystem::path& output_directory,
+    const std::filesystem::path& config_path,
+    const ShockTubeConfig& config,
+    std::string_view backend
+) {
+    const std::filesystem::path copied_config =
+        output_directory / "input-config.json";
+    if (
+        std::filesystem::absolute(config_path).lexically_normal() !=
+        std::filesystem::absolute(copied_config).lexically_normal()
+    ) {
+        std::filesystem::copy_file(
+            config_path,
+            copied_config,
+            std::filesystem::copy_options::overwrite_existing
+        );
+    }
+
+    const std::filesystem::path metadata_path =
+        output_directory / "run-metadata.json";
+    std::ofstream metadata{metadata_path};
+    if (!metadata) {
+        throw std::runtime_error(
+            "Cannot open shock-tube run metadata output."
+        );
+    }
+    metadata << std::setprecision(17)
+             << "{\n"
+             << "  \"schema_version\": 1,\n"
+             << "  \"project\": {\n"
+             << "    \"name\": \"hard-sphere-bridge\",\n"
+             << "    \"version\": ";
+    write_json_string(metadata, PARTICLES_VERSION);
+    metadata << ",\n    \"git_commit\": ";
+    write_json_string(metadata, PARTICLES_GIT_COMMIT);
+    metadata
+        << ",\n    \"git_worktree_dirty_at_configure\": "
+        << (PARTICLES_GIT_DIRTY != 0 ? "true" : "false")
+        << "\n  },\n"
+        << "  \"build\": {\n"
+        << "    \"type\": ";
+    write_json_string(metadata, PARTICLES_BUILD_TYPE);
+    metadata << ",\n    \"cxx_compiler_id\": ";
+    write_json_string(metadata, PARTICLES_CXX_COMPILER_ID);
+    metadata << ",\n    \"cxx_compiler_version\": ";
+    write_json_string(metadata, PARTICLES_CXX_COMPILER_VERSION);
+    metadata << ",\n    \"cuda_compiled\": "
+             << (PARTICLES_HAS_CUDA != 0 ? "true" : "false")
+             << ",\n    \"cuda_compiler_version\": ";
+    write_json_string(metadata, PARTICLES_CUDA_COMPILER_VERSION);
+    metadata << "\n  },\n"
+             << "  \"run\": {\n"
+             << "    \"backend\": ";
+    write_json_string(metadata, backend);
+    metadata << ",\n    \"original_config_path\": ";
+    write_json_string(metadata, config_path.string());
+    metadata
+        << ",\n    \"copied_config\": \"input-config.json\",\n"
+        << "    \"random_seed\": " << config.random_seed << ",\n"
+        << "    \"particle_count\": " << config.particle_count << ",\n"
+        << "    \"particle_diameter\": "
+        << config.particle_diameter << ",\n"
+        << "    \"end_time\": " << config.evolution.end_time << ",\n"
+        << "    \"frame_interval\": "
+        << config.evolution.frame_interval << "\n"
+        << "  },\n"
+        << "  \"cuda_device\": ";
+#if PARTICLES_HAS_CUDA
+    if (backend == "cuda") {
+        const cuda::DeviceInfo device = cuda::current_device_info();
+        metadata << "{\n    \"name\": ";
+        write_json_string(metadata, device.name);
+        metadata
+            << ",\n    \"compute_capability\": "
+            << '"' << device.compute_capability_major << '.'
+            << device.compute_capability_minor << '"'
+            << ",\n    \"total_global_memory_bytes\": "
+            << device.total_global_memory_bytes
+            << "\n  }\n";
+    } else {
+        metadata << "null\n";
+    }
+#else
+    metadata << "null\n";
+#endif
+    metadata << "}\n";
+    metadata.flush();
+    if (!metadata) {
+        throw std::runtime_error(
+            "Failed while writing shock-tube run metadata."
+        );
+    }
 }
 
 }  // namespace
@@ -368,6 +534,12 @@ int run_shock_tube(
 #endif
     const std::string_view backend =
         use_cuda ? "cuda" : "cpu";
+    write_run_metadata(
+        output_directory,
+        config_path,
+        config,
+        backend
+    );
 
     std::cout
         << std::setprecision(9)
@@ -523,7 +695,13 @@ int run_shock_tube(
         << "  evolution CSV: "
         << (output_directory / "evolution.csv").string() << '\n'
         << "  multiscale summary CSV: "
-        << writer.summary_path().string() << '\n';
+        << writer.summary_path().string() << '\n'
+        << "  run metadata JSON: "
+        << (output_directory / "run-metadata.json").string()
+        << '\n'
+        << "  copied input config: "
+        << (output_directory / "input-config.json").string()
+        << '\n';
     return diagnostics_pass ? 0 : 1;
 }
 

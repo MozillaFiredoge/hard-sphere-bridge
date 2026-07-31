@@ -1,11 +1,45 @@
-# particles
+# Hard-Sphere Bridge
+
+[![CI](https://github.com/MozillaFiredoge/hard-sphere-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/MozillaFiredoge/hard-sphere-bridge/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/MozillaFiredoge/hard-sphere-bridge)](LICENSE)
 
 CUDA-accelerated Newtonian hard-sphere simulation, with synchronized
 microscopic particle dynamics, mesoscopic phase-space statistics, and
 macroscopic fluid fields.
 
-The experiment and validation requirements are defined in
-[`docs/experiment-design.md`](docs/experiment-design.md).
+The project follows one state through three descriptions:
+
+$$
+\{x_i(t),v_i(t)\}_{i=1}^{N}
+\longrightarrow \widehat f_N(x,v_x,t)
+\longrightarrow n(x,t),u_x(x,t),T(x,t),p(x,t).
+$$
+
+The experiment and validation requirements are in
+[`docs/experiment-design.md`](docs/experiment-design.md); mathematical context
+and citations are in [`docs/references.md`](docs/references.md).
+
+## Scientific status
+
+This is an experimental numerical project, not a proof of Hilbert's sixth
+problem and not a direct deterministic solver for the Boltzmann equation.
+
+- The small CPU implementation is a globally event-driven correctness
+  reference.
+- The large CUDA implementation uses continuous collision prediction inside
+  adaptive parallel windows, with rollback and deterministic exact
+  short-window recovery.
+- Endpoint overlap detection cannot prove that two particles did not cross and
+  separate again within one rejected or accepted window; time-window
+  refinement remains required.
+- The Euler solver is an independent ideal-gas comparison and never changes a
+  particle trajectory.
+- The first million-particle shock tube is one configured realization.
+  Particle-count, Knudsen-number, bin-size, and multi-seed field studies remain
+  part of the research roadmap.
+
+See `CONTRIBUTING.md` for the evidence required when changing collision or
+interpretation logic.
 
 ## Requirements
 
@@ -18,11 +52,31 @@ The experiment and validation requirements are defined in
 
 ## Build
 
+The quickest CPU-only build uses the checked-in presets:
+
+```bash
+cmake --preset cpu-release
+cmake --build --preset cpu-release
+ctest --preset cpu-release
+./build/cpu-release/particles_cli --help
+./build/cpu-release/particles_cli smoke
+```
+
+The equivalent explicit configuration is:
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+The examples below use this explicit `build/` layout. If you selected a
+preset, substitute `build/cpu-release/` or `build/cuda-release/` as
+appropriate.
+
+The CLI never launches an experiment implicitly. Run
+`./build/particles_cli --help` for all commands and defaults. Unknown commands
+return exit status 2.
 
 Run the small event-driven equilibrium reference experiment from the repository
 root:
@@ -179,11 +233,17 @@ Every output time appends synchronized rows to `microscopic.csv`,
 `phase_space.csv`, `macroscopic.csv`, and `summary.csv`. `evolution.csv`
 records attempts, rollbacks, exact recoveries, rejected and committed minimum
 gaps, collisions, energy drift, transverse momentum drift, and per-frame
-simulation time.
+simulation time. The runner also copies the exact input to `input-config.json`
+and writes `run-metadata.json` with the project version, Git commit and dirty
+state at configure time, compiler/build information, backend, seed, effective
+end time, and visible CUDA device information.
 
 Render those five CSV files as synchronized micro-to-macro figures and an MP4:
 
 ```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-visualization.txt
 python3 tools/visualize_shock_tube.py \
   output/shock-tube \
   --config configs/shock_tube.json
@@ -210,6 +270,11 @@ advancement. Use `--euler-cells` or `--euler-cfl` to refine it, or
 recorded simulation frames per second and does not interpolate unrecorded
 particle states. Use `--fps`, `--dpi`, `--output`, or `--no-video` to change
 packaging without changing the underlying diagnostics.
+
+The manifest records source CSV hashes, the configuration hash, Git commit and
+dirty state, renderer hash, Python package versions, FFmpeg version, and basic
+platform information. Paths inside the repository are stored relative to the
+repository root.
 
 Validate the Euler solver's steady-state preservation, positivity,
 conservation, and 1024/2048/4096-cell refinement:
@@ -241,6 +306,33 @@ cmake -S . -B build-native \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CUDA_ARCHITECTURES=native
 ```
+
+The matching preset is:
+
+```bash
+cmake --preset cuda-release
+cmake --build --preset cuda-release
+ctest --preset cuda-release
+```
+
+Install the CLI, example configurations, tools, license, and documentation:
+
+```bash
+cmake --install build --prefix /your/install/prefix
+```
+
+The million-particle shock tube is intentionally not a quick-start command. On
+the first RTX 3050 Ti run it required roughly two hours; validate the
+4096-particle smoke configuration before starting it.
+
+## Project information
+
+- License: [Apache-2.0](LICENSE)
+- Citation: [`CITATION.cff`](CITATION.cff)
+- Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- Security reports: [`SECURITY.md`](SECURITY.md)
+- Release history: [`CHANGELOG.md`](CHANGELOG.md)
+- Release procedure: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)
 
 ## Current milestone
 

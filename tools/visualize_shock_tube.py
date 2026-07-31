@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -20,6 +22,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 os.environ.setdefault(
     "MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "particles-matplotlib")
@@ -823,6 +826,127 @@ def write_euler_comparison_csv(
     return final_relative_errors
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def command_output(arguments: list[str], cwd: Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            arguments,
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    output = completed.stdout.strip()
+    return output if output else None
+
+
+def portable_path(path: Path, repository_root: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(repository_root))
+    except ValueError:
+        return str(resolved)
+
+
+def sanitized_repository_remote(remote: str | None) -> str | None:
+    if remote is None:
+        return None
+    if "://" in remote:
+        parsed = urlsplit(remote)
+        if (
+            parsed.scheme not in {"git", "http", "https", "ssh"}
+            or parsed.hostname is None
+        ):
+            return None
+        host = parsed.hostname
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+        return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+    if ":" in remote and not remote.startswith(("/", ".")):
+        authority, path = remote.split(":", 1)
+        host = authority.rsplit("@", 1)[-1]
+        if host and path:
+            return f"{host}:{path}"
+    return None
+
+
+def reproducibility_metadata(
+    input_dir: Path,
+    config_path: Path,
+    video_written: bool,
+) -> dict[str, Any]:
+    repository_root = Path(__file__).resolve().parents[1]
+    git_commit = command_output(
+        ["git", "rev-parse", "HEAD"],
+        repository_root,
+    )
+    git_status = command_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        repository_root,
+    )
+    remote = command_output(
+        ["git", "remote", "get-url", "origin"],
+        repository_root,
+    )
+    ffmpeg_version: str | None = None
+    if video_written:
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg is not None:
+            version_output = command_output([ffmpeg, "-version"], repository_root)
+            if version_output is not None:
+                ffmpeg_version = version_output.splitlines()[0]
+
+    source_files = {
+        name: {
+            "bytes": (input_dir / name).stat().st_size,
+            "sha256": sha256_file(input_dir / name),
+        }
+        for name in REQUIRED_FILES
+    }
+    simulation_metadata_path = input_dir / "run-metadata.json"
+    simulation_metadata: dict[str, Any] | None = None
+    if simulation_metadata_path.is_file():
+        with simulation_metadata_path.open(encoding="utf-8") as stream:
+            simulation_metadata = json.load(stream)
+    return {
+        "repository": sanitized_repository_remote(remote),
+        "renderer_git_commit": git_commit,
+        "renderer_git_worktree_dirty": git_status is not None,
+        "simulation_run_metadata": simulation_metadata,
+        "source_directory": portable_path(input_dir, repository_root),
+        "config": {
+            "path": portable_path(config_path, repository_root),
+            "bytes": config_path.stat().st_size,
+            "sha256": sha256_file(config_path),
+        },
+        "source_csv": source_files,
+        "software": {
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "matplotlib": matplotlib.__version__,
+            "ffmpeg": ffmpeg_version,
+        },
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+        },
+        "renderer": {
+            "path": portable_path(Path(__file__), repository_root),
+            "sha256": sha256_file(Path(__file__)),
+        },
+    }
+
+
 def write_manifest(
     output_path: Path,
     input_dir: Path,
@@ -834,8 +958,12 @@ def write_manifest(
     euler_final_relative_l2_errors: dict[str, float] | None,
 ) -> None:
     manifest: dict[str, Any] = {
-        "source_directory": str(input_dir.resolve()),
-        "config": str(config_path.resolve()),
+        "schema_version": 2,
+        "reproducibility": reproducibility_metadata(
+            input_dir,
+            config_path,
+            video_written,
+        ),
         "recorded_frames": len(data.frames),
         "frame_numbers": [frame.frame for frame in data.frames],
         "simulation_times": [frame.time for frame in data.frames],

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: >-
+  If you use Hard-Sphere Bridge in research or teaching, please cite this
+  software and the specific release used.
+title: Hard-Sphere Bridge
+type: software
+authors:
+  - name: F1red0g3
+abstract: >-
+  A CUDA-accelerated Newtonian hard-sphere simulator with synchronized
+  microscopic particle samples, mesoscopic phase-space statistics,
+  macroscopic fluid moments, and an independent ideal-gas Euler reference.
+repository-code: https://github.com/MozillaFiredoge/hard-sphere-bridge
+url: https://github.com/MozillaFiredoge/hard-sphere-bridge
+license: Apache-2.0
+version: 0.1.0
+keywords:
+  - hard-sphere dynamics
+  - kinetic theory
+  - CUDA
+  - Boltzmann equation
+  - fluid dynamics
