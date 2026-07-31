@@ -8,3 +8,5 @@
 /frames/
 /output/
 
+*.pyc
+__pycache__/

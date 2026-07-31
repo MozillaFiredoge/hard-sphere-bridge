@@ -32,7 +32,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.colors import LogNorm, Normalize  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
+
+from euler_reference import (  # noqa: E402
+    EulerFrame,
+    EulerParameters,
+    EulerSolution,
+    solve_euler_reference,
+    write_euler_csv,
+)
 
 
 BACKGROUND = "#090d18"
@@ -42,6 +51,7 @@ MUTED = "#94a3b8"
 GRID = "#334155"
 CURRENT = "#38bdf8"
 REFERENCE = "#a1a1aa"
+EULER = "#fbbf24"
 INTERFACE = "#f59e0b"
 
 REQUIRED_FILES = (
@@ -116,6 +126,23 @@ def parse_args() -> argparse.Namespace:
         "--no-video",
         action="store_true",
         help="render PNG files but do not invoke ffmpeg",
+    )
+    parser.add_argument(
+        "--euler-cells",
+        type=int,
+        default=2048,
+        help="finite-volume cells in the ideal-gas Euler reference",
+    )
+    parser.add_argument(
+        "--euler-cfl",
+        type=float,
+        default=0.45,
+        help="CFL number for the ideal-gas Euler reference",
+    )
+    parser.add_argument(
+        "--no-euler",
+        action="store_true",
+        help="omit the Euler reference and reproduce particle-only views",
     )
     return parser.parse_args()
 
@@ -309,18 +336,21 @@ def padded_limits(values: np.ndarray, fraction: float = 0.07) -> tuple[float, fl
     return low - fraction * span, high + fraction * span
 
 
-def macro_limits(data: VisualizationData) -> dict[str, tuple[float, float]]:
-    return {
-        field: padded_limits(
-            np.concatenate([frame.macroscopic[field] for frame in data.frames])
-        )
-        for field in (
-            "number_density",
-            "bulk_velocity_x",
-            "temperature",
-            "pressure",
-        )
-    }
+def macro_limits(
+    data: VisualizationData, euler: EulerSolution | None
+) -> dict[str, tuple[float, float]]:
+    limits: dict[str, tuple[float, float]] = {}
+    for field in (
+        "number_density",
+        "bulk_velocity_x",
+        "temperature",
+        "pressure",
+    ):
+        values = [frame.macroscopic[field] for frame in data.frames]
+        if euler is not None:
+            values.extend(frame.fields[field] for frame in euler.frames)
+        limits[field] = padded_limits(np.concatenate(values))
+    return limits
 
 
 def add_interface(ax: plt.Axes, interface_x: float) -> None:
@@ -334,7 +364,10 @@ def add_interface(ax: plt.Axes, interface_x: float) -> None:
 
 
 def render_macroscopic_evolution(
-    data: VisualizationData, output_path: Path, dpi: int
+    data: VisualizationData,
+    euler: EulerSolution | None,
+    output_path: Path,
+    dpi: int,
 ) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(15, 8.5), dpi=dpi)
     style_figure(fig)
@@ -350,6 +383,11 @@ def render_macroscopic_evolution(
     color_map = plt.get_cmap("turbo")
     time_max = max(frame.time for frame in data.frames)
     time_norm = Normalize(vmin=0.0, vmax=max(time_max, 1.0e-12))
+    euler_by_frame = (
+        {frame.frame: frame for frame in euler.frames}
+        if euler is not None
+        else {}
+    )
 
     for ax, (field, label) in zip(axes.flat, fields):
         style_axis(ax)
@@ -363,6 +401,16 @@ def render_macroscopic_evolution(
                 linewidth=1.55,
                 label=f"t = {frame.time:.2f}",
             )
+            euler_frame = euler_by_frame.get(frame.frame)
+            if euler_frame is not None:
+                ax.plot(
+                    euler_frame.fields["x_center"],
+                    euler_frame.fields[field],
+                    color=color,
+                    linewidth=1.15,
+                    linestyle=(0, (5, 3)),
+                    alpha=0.95,
+                )
         add_interface(ax, data.interface_x)
         ax.set_xlim(0.0, data.domain_extent[0])
         ax.set_xlabel(r"$x$")
@@ -376,8 +424,36 @@ def render_macroscopic_evolution(
         ncol=2,
         loc="best",
     )
+    if euler is not None:
+        axes[0, 1].legend(
+            handles=[
+                Line2D(
+                    [0],
+                    [0],
+                    color=FOREGROUND,
+                    linewidth=1.6,
+                    label="hard-sphere moments",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    color=FOREGROUND,
+                    linewidth=1.2,
+                    linestyle=(0, (5, 3)),
+                    label=r"ideal Euler, $\gamma=5/3$",
+                ),
+            ],
+            frameon=False,
+            fontsize=8,
+            labelcolor=FOREGROUND,
+            loc="upper left",
+        )
     fig.suptitle(
-        "Macroscopic fields derived from the same Newtonian hard-sphere states",
+        (
+            "Hard-sphere fluid moments compared with an ideal-gas Euler reference"
+            if euler is not None
+            else "Macroscopic fields derived from Newtonian hard-sphere states"
+        ),
         color=FOREGROUND,
         fontsize=17,
         fontweight="bold",
@@ -390,6 +466,12 @@ def render_macroscopic_evolution(
             f"N = {data.particle_count:,}   |   {data.macroscopic_slabs} slabs"
             f"   |   orange dashed line: initial interface x = {data.interface_x:g}"
             "   |   no temporal smoothing"
+            + (
+                f"   |   Euler: {euler.parameters.cells} cells, "
+                f"CFL {euler.parameters.cfl:g}"
+                if euler is not None
+                else ""
+            )
         ),
         color=MUTED,
         fontsize=9,
@@ -409,6 +491,8 @@ def render_frame(
     velocity_limit: float,
     limits: dict[str, tuple[float, float]],
     cumulative_collisions: int,
+    euler_frame: EulerFrame | None,
+    euler_parameters: EulerParameters | None,
 ) -> None:
     fig = plt.figure(figsize=(16, 9), dpi=dpi)
     style_figure(fig)
@@ -512,25 +596,36 @@ def render_frame(
         ("temperature", r"$T(x)$"),
         ("pressure", r"$p(x)$"),
     )
-    initial = data.frames[0]
     for index, (ax, (field, label)) in enumerate(zip(macro_axes, macro_fields)):
         style_axis(ax)
-        ax.plot(
-            initial.macroscopic["x_center"],
-            initial.macroscopic[field],
-            color=REFERENCE,
-            linewidth=1.0,
-            linestyle=(0, (3, 3)),
-            alpha=0.8,
-            label="t = 0",
-        )
         ax.plot(
             frame.macroscopic["x_center"],
             frame.macroscopic[field],
             color=CURRENT,
             linewidth=1.55,
-            label=f"t = {frame.time:.2f}",
+            label=f"hard spheres, t = {frame.time:.2f}",
         )
+        if euler_frame is not None:
+            ax.plot(
+                euler_frame.fields["x_center"],
+                euler_frame.fields[field],
+                color=EULER,
+                linewidth=1.25,
+                linestyle=(0, (5, 3)),
+                alpha=0.95,
+                label=r"ideal Euler, $\gamma=5/3$",
+            )
+        else:
+            initial = data.frames[0]
+            ax.plot(
+                initial.macroscopic["x_center"],
+                initial.macroscopic[field],
+                color=REFERENCE,
+                linewidth=1.0,
+                linestyle=(0, (3, 3)),
+                alpha=0.8,
+                label="t = 0",
+            )
         add_interface(ax, data.interface_x)
         ax.set_xlim(0.0, data.domain_extent[0])
         ax.set_ylim(*limits[field])
@@ -539,7 +634,15 @@ def render_frame(
         if index == 0:
             ax.set_title(
                 "MACROSCOPIC\n"
-                f"moments over all particles in {data.macroscopic_slabs} slabs",
+                + (
+                    f"{data.macroscopic_slabs}-slab particle moments vs "
+                    "ideal Euler"
+                    if euler_frame is not None
+                    else (
+                        "moments over all particles in "
+                        f"{data.macroscopic_slabs} slabs"
+                    )
+                ),
                 fontsize=11,
                 fontweight="bold",
                 pad=8,
@@ -596,6 +699,12 @@ def render_frame(
             f"committed minimum surface gap: {gap_text}    |    "
             f"relative kinetic-energy drift: {relative_energy_drift:.2e}    |    "
             "orange dashed line: initial interface"
+            + (
+                f"    |    Euler numerical reference: "
+                f"{euler_parameters.cells} cells, CFL {euler_parameters.cfl:g}"
+                if euler_parameters is not None
+                else ""
+            )
         ),
         color=MUTED,
         fontsize=9,
@@ -605,7 +714,9 @@ def render_frame(
     plt.close(fig)
 
 
-def encode_video(frames_dir: Path, output_path: Path, fps: float) -> None:
+def encode_video(
+    frames_dir: Path, output_path: Path, fps: float, frame_count: int
+) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError("ffmpeg was not found; rerun with --no-video")
@@ -619,6 +730,8 @@ def encode_video(frames_dir: Path, output_path: Path, fps: float) -> None:
         f"{fps:g}",
         "-i",
         str(frames_dir / "frame-%03d.png"),
+        "-frames:v",
+        str(frame_count),
         "-c:v",
         "libx264",
         "-crf",
@@ -632,6 +745,84 @@ def encode_video(frames_dir: Path, output_path: Path, fps: float) -> None:
     subprocess.run(command, check=True)
 
 
+def write_euler_comparison_csv(
+    data: VisualizationData,
+    euler: EulerSolution,
+    output_path: Path,
+) -> dict[str, float]:
+    euler_by_frame = {frame.frame: frame for frame in euler.frames}
+    fields = (
+        "number_density",
+        "bulk_velocity_x",
+        "temperature",
+        "pressure",
+    )
+    columns = (
+        "frame",
+        "time",
+        "field",
+        "rms_error",
+        "relative_l2_error",
+        "mean_absolute_error",
+        "maximum_absolute_error",
+        "particle_minimum",
+        "particle_maximum",
+        "euler_minimum",
+        "euler_maximum",
+    )
+    final_relative_errors: dict[str, float] = {}
+    with output_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns)
+        writer.writeheader()
+        for particle_frame in data.frames:
+            euler_frame = euler_by_frame[particle_frame.frame]
+            particle_x = particle_frame.macroscopic["x_center"]
+            euler_x = euler_frame.fields["x_center"]
+            for field in fields:
+                particle_values = particle_frame.macroscopic[field]
+                euler_values = np.interp(
+                    particle_x,
+                    euler_x,
+                    euler_frame.fields[field],
+                )
+                difference = particle_values - euler_values
+                rms_error = float(np.sqrt(np.mean(difference**2)))
+                euler_l2 = float(np.sqrt(np.mean(euler_values**2)))
+                relative_l2_error = rms_error / max(
+                    euler_l2, np.finfo(np.float64).tiny
+                )
+                writer.writerow(
+                    {
+                        "frame": particle_frame.frame,
+                        "time": f"{particle_frame.time:.17g}",
+                        "field": field,
+                        "rms_error": f"{rms_error:.17g}",
+                        "relative_l2_error": f"{relative_l2_error:.17g}",
+                        "mean_absolute_error": (
+                            f"{float(np.mean(np.abs(difference))):.17g}"
+                        ),
+                        "maximum_absolute_error": (
+                            f"{float(np.max(np.abs(difference))):.17g}"
+                        ),
+                        "particle_minimum": (
+                            f"{float(np.min(particle_values)):.17g}"
+                        ),
+                        "particle_maximum": (
+                            f"{float(np.max(particle_values)):.17g}"
+                        ),
+                        "euler_minimum": (
+                            f"{float(np.min(euler_values)):.17g}"
+                        ),
+                        "euler_maximum": (
+                            f"{float(np.max(euler_values)):.17g}"
+                        ),
+                    }
+                )
+                if particle_frame is data.frames[-1]:
+                    final_relative_errors[field] = relative_l2_error
+    return final_relative_errors
+
+
 def write_manifest(
     output_path: Path,
     input_dir: Path,
@@ -639,6 +830,8 @@ def write_manifest(
     data: VisualizationData,
     fps: float,
     video_written: bool,
+    euler: EulerSolution | None,
+    euler_final_relative_l2_errors: dict[str, float] | None,
 ) -> None:
     manifest: dict[str, Any] = {
         "source_directory": str(input_dir.resolve()),
@@ -654,11 +847,39 @@ def write_manifest(
         "phase_space_bins": [data.phase_x_bins, data.phase_vx_bins],
         "macroscopic_particles_per_frame": data.particle_count,
         "macroscopic_slabs": data.macroscopic_slabs,
+        "euler_reference": (
+            {
+                "enabled": True,
+                "model": "one-dimensional monatomic ideal-gas Euler",
+                "gamma": euler.parameters.gamma,
+                "cells": euler.parameters.cells,
+                "cfl": euler.parameters.cfl,
+                "limiter_theta": euler.parameters.limiter_theta,
+                "scheme": "MUSCL + minmod + Rusanov + SSP-RK2",
+                "longitudinal_boundary": "reflecting",
+                "initial_condition": "analytic smooth profile from config",
+                "participates_in_particle_advancement": False,
+                "steps": euler.steps,
+                "relative_mass_drift": euler.relative_mass_drift,
+                "relative_energy_drift": euler.relative_energy_drift,
+                "minimum_density": euler.minimum_density,
+                "minimum_pressure": euler.minimum_pressure,
+                "final_frame_relative_l2_errors": (
+                    euler_final_relative_l2_errors
+                ),
+            }
+            if euler is not None
+            else {"enabled": False}
+        ),
         "artifacts": {
             "macroscopic_evolution": "macroscopic-evolution.png",
             "final_overview": "final-overview.png",
             "frames": "frames/frame-000.png ...",
             "video": "shock-tube.mp4" if video_written else None,
+            "euler_reference": "euler-reference.csv" if euler is not None else None,
+            "euler_comparison": (
+                "euler-comparison.csv" if euler is not None else None
+            ),
         },
     }
     with output_path.open("w", encoding="utf-8") as stream:
@@ -672,6 +893,10 @@ def main() -> int:
         raise ValueError("--fps must be positive")
     if args.dpi <= 0:
         raise ValueError("--dpi must be positive")
+    if not args.no_euler and args.euler_cells < 8:
+        raise ValueError("--euler-cells must be at least eight")
+    if not args.no_euler and not 0.0 < args.euler_cfl < 1.0:
+        raise ValueError("--euler-cfl must lie strictly between zero and one")
 
     input_dir = args.input.resolve()
     output_dir = (
@@ -690,8 +915,49 @@ def main() -> int:
         f"N={data.particle_count:,}"
     )
 
+    euler: EulerSolution | None = None
+    euler_final_relative_l2_errors: dict[str, float] | None = None
+    if not args.no_euler:
+        euler = solve_euler_reference(
+            config_path,
+            [(frame.frame, frame.time) for frame in data.frames],
+            particle_count=data.particle_count,
+            parameters=EulerParameters(
+                cells=args.euler_cells,
+                cfl=args.euler_cfl,
+            ),
+        )
+        euler_path = output_dir / "euler-reference.csv"
+        write_euler_csv(euler, euler_path)
+        euler_comparison_path = output_dir / "euler-comparison.csv"
+        euler_final_relative_l2_errors = write_euler_comparison_csv(
+            data,
+            euler,
+            euler_comparison_path,
+        )
+        print(
+            f"Euler reference: cells={euler.parameters.cells}, "
+            f"steps={euler.steps}, "
+            f"mass drift={euler.relative_mass_drift:.3e}, "
+            f"energy drift={euler.relative_energy_drift:.3e}"
+        )
+        print(f"wrote {euler_path}")
+        print(f"wrote {euler_comparison_path}")
+        print(
+            "final relative L2 errors: "
+            + ", ".join(
+                f"{field}={value:.4g}"
+                for field, value in euler_final_relative_l2_errors.items()
+            )
+        )
+    euler_by_frame = (
+        {frame.frame: frame for frame in euler.frames}
+        if euler is not None
+        else {}
+    )
+
     macro_path = output_dir / "macroscopic-evolution.png"
-    render_macroscopic_evolution(data, macro_path, args.dpi)
+    render_macroscopic_evolution(data, euler, macro_path, args.dpi)
     print(f"wrote {macro_path}")
 
     phase_max = max(float(np.max(frame.phase_counts)) for frame in data.frames)
@@ -704,7 +970,7 @@ def main() -> int:
         abs(data.frames[0].phase_extent[3]),
         sampled_velocity_max,
     )
-    limits = macro_limits(data)
+    limits = macro_limits(data, euler)
     cumulative_collisions = 0
     final_frame_path: Path | None = None
     for sequence, frame in enumerate(data.frames):
@@ -719,6 +985,8 @@ def main() -> int:
             velocity_limit,
             limits,
             cumulative_collisions,
+            euler_by_frame.get(frame.frame),
+            euler.parameters if euler is not None else None,
         )
         final_frame_path = frame_path
         print(
@@ -735,7 +1003,7 @@ def main() -> int:
     video_written = False
     video_path = output_dir / "shock-tube.mp4"
     if not args.no_video:
-        encode_video(frames_dir, video_path, args.fps)
+        encode_video(frames_dir, video_path, args.fps, len(data.frames))
         video_written = True
         print(f"wrote {video_path}")
 
@@ -747,6 +1015,8 @@ def main() -> int:
         data,
         args.fps,
         video_written,
+        euler,
+        euler_final_relative_l2_errors,
     )
     print(f"wrote {manifest_path}")
     return 0

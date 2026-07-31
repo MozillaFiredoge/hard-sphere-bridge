@@ -192,14 +192,34 @@ python3 tools/visualize_shock_tube.py \
 The renderer creates `visualization/macroscopic-evolution.png`, a 1920x1080
 PNG for every recorded time in `visualization/frames/`,
 `visualization/final-overview.png`, `visualization/shock-tube.mp4`, and a
-machine-readable `visualization/manifest.json`. Each video frame places a
-stable 2048-particle microscopic sample, the \(x-v_x\) histogram accumulated
-from the full particle array (with clipped velocity tails reported), and the
-all-particle 256-slab \(n,u_x,T,p\) moments side by side. Axis and color ranges
-are fixed over the complete run. The default video uses two recorded
-simulation frames per second and does not interpolate unrecorded particle
-states. Use `--fps`, `--dpi`, `--output`, or `--no-video` to change packaging
-without changing the underlying diagnostics.
+machine-readable `visualization/manifest.json`. It also solves a separate
+one-dimensional monatomic ideal-gas Euler reference and writes
+`euler-reference.csv` plus the frame/field errors in `euler-comparison.csv`.
+Each video frame places a stable 2048-particle microscopic sample, the
+\(x-v_x\) histogram accumulated from the full particle array (with clipped
+velocity tails reported), and the all-particle 256-slab \(n,u_x,T,p\) moments
+with the Euler curves overlaid. Axis and color ranges are fixed over the
+complete run.
+
+The Euler baseline uses \(\gamma=5/3\), the configured smooth initial profile,
+reflecting longitudinal boundaries, 2048 finite-volume cells, MUSCL/minmod
+reconstruction, Rusanov fluxes, SSP-RK2 time integration, and CFL 0.45. It is
+a diagnostic numerical reference and never participates in particle
+advancement. Use `--euler-cells` or `--euler-cfl` to refine it, or
+`--no-euler` to reproduce a particle-only view. The default video uses two
+recorded simulation frames per second and does not interpolate unrecorded
+particle states. Use `--fps`, `--dpi`, `--output`, or `--no-video` to change
+packaging without changing the underlying diagnostics.
+
+Validate the Euler solver's steady-state preservation, positivity,
+conservation, and 1024/2048/4096-cell refinement:
+
+```bash
+python3 tools/euler_reference.py \
+  --self-test \
+  --grid-check \
+  configs/shock_tube.json
+```
 
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
@@ -286,6 +306,8 @@ The current scaffold provides:
   rollback, and a per-interval evolution report;
 - an offline synchronized micro/meso/macro renderer with fixed visual scales,
   publication PNG output, artifact metadata, and recorded-state MP4 framing;
+- a conservative one-dimensional \(\gamma=5/3\) Euler numerical reference,
+  grid-refinement check, synchronized overlays, and per-field error reports;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -305,6 +327,7 @@ it is not the final million-particle throughput path. The window-parallel rule
 and fixed/adaptive reports now run on both CPU and CUDA. The mixed-boundary
 million-particle shock tube has completed through \(t=0.2\), and its 11
 synchronized states can now be rendered as the micro/meso/macro video above.
-The next physics comparison is a one-dimensional \(\gamma=5/3\) Euler
-reference evaluated at those same output times; it remains a diagnostic
-overlay and does not participate in particle advancement.
+The one-dimensional \(\gamma=5/3\) Euler reference is evaluated at those same
+output times as a diagnostic-only overlay. The next comparison step is to
+extract particle/Euler wave locations and propagation speeds, then repeat the
+measurement across particle-count and Knudsen-number scans.
