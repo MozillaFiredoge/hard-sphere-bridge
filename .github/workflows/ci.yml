@@ -99,6 +99,14 @@ jobs:
           --self-test
           --grid-check
           configs/shock_tube.json
+      - name: Validate Enskog-Euler reference
+        run: |
+          python tools/enskog_reference.py --self-test configs/shock_tube.json
+          python tools/analyze_enskog_comparison.py --self-test
+      - name: Validate Enskog Navier-Stokes-Fourier reference
+        run: |
+          python tools/enskog_nsf_reference.py --self-test configs/shock_tube.json
+          python tools/analyze_enskog_nsf_comparison.py --self-test
       - name: Validate wave-marker extraction
         run: python tools/analyze_wave_kinematics.py --self-test
       - name: Validate multi-seed statistics
@@ -178,6 +186,17 @@ jobs:
           python tools/analyze_n_kn_scan.py
           configs/shock_tube_n_kn_scan_smoke.json
           build/ci-n-kn-scan
+      - name: Compare ideal and Enskog-Euler smoke references
+        run: >
+          python tools/analyze_enskog_comparison.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          build/ci-n-kn-scan
+      - name: Compare Enskog transport smoke reference
+        run: >
+          python tools/analyze_enskog_nsf_comparison.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          build/ci-n-kn-scan
+          --nsf-cells 128
       - name: Check particle-count/Knudsen artifacts
         run: |
           test -s build/ci-n-kn-scan/scan-manifest.csv
@@ -188,3 +207,17 @@ jobs:
           test -s build/ci-n-kn-scan/analysis/summary.json
           test -s build/ci-n-kn-scan/analysis/field-error-scan.png
           test -s build/ci-n-kn-scan/analysis/uncertainty-scaling.png
+          test -s build/ci-n-kn-scan/enskog-comparison/field-comparison.csv
+          test -s build/ci-n-kn-scan/enskog-comparison/velocity-diagnostics.csv
+          test -s build/ci-n-kn-scan/enskog-comparison/reference-grid-check.csv
+          test -s build/ci-n-kn-scan/enskog-comparison/summary.json
+          test -s build/ci-n-kn-scan/enskog-comparison/enskog-field-comparison.png
+          test -s build/ci-n-kn-scan/enskog-comparison/velocity-error-diagnostics.png
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/field-comparison.csv
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/velocity-diagnostics.csv
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/transport-coefficients.csv
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/reference-grid-check.csv
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/summary.json
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/enskog-nsf-field-comparison.png
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/model-error-comparison.png
+          test -s build/ci-n-kn-scan/enskog-nsf-comparison/velocity-profile-comparison.png

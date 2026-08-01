@@ -35,6 +35,40 @@ those proofs and must not be cited as a proof of Hilbert's sixth problem.
   SSP-RK2 time integration. It is a numerical comparison curve and never
   advances or corrects particle states.
 
+## Dense hard-sphere context
+
+1. Norman F. Carnahan and Kenneth E. Starling,
+   [Equation of State for Nonattracting Rigid Spheres](https://doi.org/10.1063/1.1672048),
+   *Journal of Chemical Physics* 51, 635--636, 1969.
+2. José María Montanero and Andrés Santos,
+   [Monte Carlo simulation method for the Enskog equation](https://doi.org/10.1103/PhysRevE.54.438),
+   *Physical Review E* 54, 438--444, 1996.
+
+The first checked-in Enskog comparison is an inviscid hard-sphere
+hydrodynamic reference. It uses the Carnahan--Starling compressibility factor
+
+\[
+Z(\eta)=\frac{1+\eta+\eta^2-\eta^3}{(1-\eta)^3},\qquad
+\eta=\frac{\pi}{6}nd^3,
+\]
+
+and advances Euler conservation laws with total mechanical pressure
+\(p=nk_BT Z\). The particle CSV's existing `pressure` column is only the
+kinetic moment \(nk_BT\); for the matched dense-gas comparison, the analyzer
+applies the same Carnahan--Starling closure to each independent particle seed
+before averaging.
+
+The second comparison adds the Navier--Stokes-order elastic-hard-sphere
+transport coefficients in equations (2.15)--(2.21) of Montanero and Santos:
+first-Sonine shear viscosity, bulk viscosity, and thermal conductivity. It
+uses the normal stress
+\(\tau_{xx}=(4\mu/3+\zeta)\partial_xu\) and Fourier heat flux
+\(q_x=-\kappa\partial_xT\) in a conservative one-dimensional finite-volume
+solver. This reference is still a first-gradient continuum closure, not a
+numerical solution of the full nonlocal Enskog kinetic equation. In
+particular, it should not be expected to remain quantitatively accurate once
+the local Knudsen number is no longer small.
+
 ## Citation of this software
 
 Use the metadata in the repository's `CITATION.cff` and cite an immutable

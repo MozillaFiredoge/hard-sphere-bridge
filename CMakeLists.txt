@@ -167,9 +167,13 @@ install(
 )
 install(
     PROGRAMS
+        tools/analyze_enskog_comparison.py
+        tools/analyze_enskog_nsf_comparison.py
         tools/analyze_n_kn_scan.py
         tools/analyze_multiseed_fields.py
         tools/analyze_wave_kinematics.py
+        tools/enskog_reference.py
+        tools/enskog_nsf_reference.py
         tools/euler_reference.py
         tools/run_n_kn_scan.py
         tools/run_multiseed_shock_tube.py

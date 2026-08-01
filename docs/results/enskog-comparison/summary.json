@@ -1,0 +1,392 @@
+{
+  "schema_version": 1,
+  "experiment": "shock_tube_enskog_euler_comparison",
+  "status": "completed",
+  "scope": "inviscid hard-sphere hydrodynamic reference using the Carnahan--Starling equilibrium EOS; not a full Enskog kinetic or dissipative transport solver",
+  "method": {
+    "packing_fraction": "eta = pi * n * d^3 / 6",
+    "compressibility_factor": "Z = (1 + eta + eta^2 - eta^3) / (1 - eta)^3",
+    "pressure": "p = n * k_B * T * Z",
+    "particle_enskog_pressure": "Carnahan--Starling closure applied to each seed before forming the independent-seed mean",
+    "velocity_active_region": "slabs with |u_reference| >= 0.05 max |u_reference|",
+    "velocity_shift_search": "integer slab shifts within 6.25% of the longitudinal domain",
+    "analysis_tool_sha256": "5f6ad7eba03e62670b3354fb7b3c767cbcb568bc4b77b273c0113026fbc49338",
+    "reference_tool_sha256": "991b4931ae43f349998647a9f7c0f32e029f38d10e1149c72b7c8a9184ac98f3"
+  },
+  "inputs": {
+    "scan_config": {
+      "path": "configs/shock_tube_n_kn_scan.json",
+      "sha256": "8bafddd2f2da42c080afc8f48e9373ceaa6e06a4f58b24b0ecad59ef68faebe1"
+    },
+    "scan_output": "output/n-kn-scan"
+  },
+  "analyzed_cells": 9,
+  "largest_particle_count": 524288,
+  "largest_particle_count_field_comparison": [
+    {
+      "target_knudsen": 0.02,
+      "number_density_ideal_relative_l2": 0.033717486922538724,
+      "bulk_velocity_x_ideal_relative_l2": 0.17704966535243763,
+      "temperature_ideal_relative_l2": 0.03112883514834993,
+      "pressure_ideal_relative_l2": 0.04266188579662264,
+      "number_density_enskog_relative_l2": 0.032283204649229395,
+      "bulk_velocity_x_enskog_relative_l2": 0.1802935964701077,
+      "temperature_enskog_relative_l2": 0.03350884801345869,
+      "pressure_enskog_relative_l2": 0.042388900291616086
+    },
+    {
+      "target_knudsen": 0.05,
+      "number_density_ideal_relative_l2": 0.019990857467492615,
+      "bulk_velocity_x_ideal_relative_l2": 0.19456116132397255,
+      "temperature_ideal_relative_l2": 0.034680738003845815,
+      "pressure_ideal_relative_l2": 0.03532270212360427,
+      "number_density_enskog_relative_l2": 0.020456296960239744,
+      "bulk_velocity_x_enskog_relative_l2": 0.19823797391904438,
+      "temperature_enskog_relative_l2": 0.03563468991143939,
+      "pressure_enskog_relative_l2": 0.03614522611827039
+    },
+    {
+      "target_knudsen": 0.1,
+      "number_density_ideal_relative_l2": 0.02149692455975082,
+      "bulk_velocity_x_ideal_relative_l2": 0.2166428452203299,
+      "temperature_ideal_relative_l2": 0.03879303334357328,
+      "pressure_ideal_relative_l2": 0.04052778998359136,
+      "number_density_enskog_relative_l2": 0.02174666680912188,
+      "bulk_velocity_x_enskog_relative_l2": 0.21789448860916594,
+      "temperature_enskog_relative_l2": 0.039172352410092086,
+      "pressure_enskog_relative_l2": 0.04090733066446194
+    }
+  ],
+  "velocity_diagnosis": {
+    "median_ideal_domain_relative_l2": 0.21374797852390298,
+    "median_ideal_rms_difference_over_reference_peak": 0.06815806898496966,
+    "normalization_ratio": 0.3188711746218816,
+    "median_ideal_active_region_relative_l2": 0.15632274799499385,
+    "median_ideal_quiet_fraction_of_squared_error": 0.45606820670621684,
+    "median_ideal_shift_aligned_relative_l2": 0.20960883785171236,
+    "median_ideal_relative_ci95_half_width_rms": 0.29478804734119896,
+    "median_enskog_domain_relative_l2": 0.21406209343437999,
+    "median_enskog_rms_difference_over_reference_peak": 0.06971250475900476,
+    "median_enskog_active_region_relative_l2": 0.16978989858452223,
+    "median_enskog_shift_aligned_relative_l2": 0.21210370660852845,
+    "median_enskog_relative_ci95_half_width_rms": 0.28801821474254263
+  },
+  "reference_grid_check": [
+    {
+      "cell_id": "n-000524288_kn-0p020000",
+      "particle_count": 524288,
+      "target_knudsen": 0.02,
+      "field": "number_density",
+      "coarse_cells": 2048,
+      "refined_cells": 4096,
+      "relative_l2_coarse_vs_refined": 0.00018245042810053453,
+      "refined_relative_mass_drift": 2.220446049250313e-16,
+      "refined_relative_energy_drift": 4.637523076963897e-16
+    },
+    {
+      "cell_id": "n-000524288_kn-0p020000",
+      "particle_count": 524288,
+      "target_knudsen": 0.02,
+      "field": "bulk_velocity_x",
+      "coarse_cells": 2048,
+      "refined_cells": 4096,
+      "relative_l2_coarse_vs_refined": 0.00258616609024148,
+      "refined_relative_mass_drift": 2.220446049250313e-16,
+      "refined_relative_energy_drift": 4.637523076963897e-16
+    },
+    {
+      "cell_id": "n-000524288_kn-0p020000",
+      "particle_count": 524288,
+      "target_knudsen": 0.02,
+      "field": "temperature",
+      "coarse_cells": 2048,
+      "refined_cells": 4096,
+      "relative_l2_coarse_vs_refined": 0.00030273549606813063,
+      "refined_relative_mass_drift": 2.220446049250313e-16,
+      "refined_relative_energy_drift": 4.637523076963897e-16
+    },
+    {
+      "cell_id": "n-000524288_kn-0p020000",
+      "particle_count": 524288,
+      "target_knudsen": 0.02,
+      "field": "pressure",
+      "coarse_cells": 2048,
+      "refined_cells": 4096,
+      "relative_l2_coarse_vs_refined": 0.0002889390851275046,
+      "refined_relative_mass_drift": 2.220446049250313e-16,
+      "refined_relative_energy_drift": 4.637523076963897e-16
+    }
+  ],
+  "cells": [
+    {
+      "cell_id": "n-000131072_kn-0p020000",
+      "particle_count": 131072,
+      "target_knudsen": 0.02,
+      "particle_diameter": 0.005179914777775431,
+      "maximum_initial_packing_fraction": 0.030522940544445123,
+      "initial_maximum_compressibility_factor": 1.1319455300616212,
+      "enskog_reference_steps": 421,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 1.545841025654632e-16,
+      "enskog_reference_maximum_packing_fraction": 0.030522940544445116,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "135b7ee3dd6c034340a14fbae5a36f4dc780028fcf3d5e747837f1dd6c45761c"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "55f2f9e27340ac3608113d0b843a34b61bdf618112b1f70797a0814019efb532"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "f6511103ba0d049d718e068da87bc3e0dcba23391e51c6cb23bac257a931c0cb"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "00cf9c52abe3f270797e62fb2c5cbb1a427857cef0ebcaf61d6155b846f120dd"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000131072_kn-0p050000",
+      "particle_count": 131072,
+      "target_knudsen": 0.05,
+      "particle_diameter": 0.00327606575666706,
+      "maximum_initial_packing_fraction": 0.007721761040507719,
+      "initial_maximum_compressibility_factor": 1.0314916882158174,
+      "enskog_reference_steps": 399,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 0.0,
+      "enskog_reference_maximum_packing_fraction": 0.007721761040507718,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "ac9dda661e07f3def43190535be3c1da996575adbe684b919ee4aae1e78c43f7"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "33a5b0497cafdf7c6942f33823503061bed980fd2d0d392e507e2f3ef053b576"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "f7d11dcf46584e8ff5171e82db1802ef6fdc09b8b2024669a209b7d4f188b544"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "05c23f7ea3ca67aea55bf245d010000045f7964d2ea6657e9cba74119cb94773"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000131072_kn-0p100000",
+      "particle_count": 131072,
+      "target_knudsen": 0.1,
+      "particle_diameter": 0.002316528312152316,
+      "maximum_initial_packing_fraction": 0.0027300547972225497,
+      "initial_maximum_compressibility_factor": 1.0109951189999022,
+      "enskog_reference_steps": 394,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 0.0,
+      "enskog_reference_maximum_packing_fraction": 0.0027300547972225492,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "296042cdfa6014ba74b1d9ce935de68d50b2de23ed2141041b6902e4693ae6af"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "1e3767b43e3cd745225118547fe9c3275ad4250cb2881d73a02a14bc025a2930"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "fb48006a8f8c500d25f0a683b17db3ed07dc000c400e2f7b0b2580f5c8b63adc"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "2f216dda0e63f282aa603cc1cc9651cd1c96873489fe67f2ec54ceb734d21c93"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000262144_kn-0p020000",
+      "particle_count": 262144,
+      "target_knudsen": 0.02,
+      "particle_diameter": 0.005179914777775431,
+      "maximum_initial_packing_fraction": 0.030522940544445123,
+      "initial_maximum_compressibility_factor": 1.1319455300616212,
+      "enskog_reference_steps": 421,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 3.091682051309264e-16,
+      "enskog_reference_maximum_packing_fraction": 0.030522940544445123,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "40e9231b1d18916d6bb8f1d5e18e48a14b0d59cfa72740c1b5d3bfbcfebe9980"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "a9bd19cbc03d93c92c2ebcee44f8deee69f551fc38ddd297e972ca3362a36ec2"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "f42e186deb0e91d949ff3721634bc0d9e6a4669f74ef496881258c68e3cbaf28"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "09d1df624d278a6f8b21ec675957179b1e7a4d101ab9206b79a304e6904306bd"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000262144_kn-0p050000",
+      "particle_count": 262144,
+      "target_knudsen": 0.05,
+      "particle_diameter": 0.00327606575666706,
+      "maximum_initial_packing_fraction": 0.007721761040507719,
+      "initial_maximum_compressibility_factor": 1.0314916882158174,
+      "enskog_reference_steps": 399,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 3.091682051309264e-16,
+      "enskog_reference_maximum_packing_fraction": 0.007721761040507719,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "7f9815a60b455172380a221f2be8d1d28cd8ef8a7158f1feda55d62a5032b84b"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "e8cd1fd1abb2dff8d0722b47e784aa1010ad34ccc9dc039442840b6155133ca3"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "fc8b7702726824963b75026c852b9c59d909ba3a9b9bfeab77049a424351f42c"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "ab2df3edc7002e2939d1196d3bb29763cca83ca8f5755c29de50fb0e298288af"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000262144_kn-0p100000",
+      "particle_count": 262144,
+      "target_knudsen": 0.1,
+      "particle_diameter": 0.002316528312152316,
+      "maximum_initial_packing_fraction": 0.0027300547972225497,
+      "initial_maximum_compressibility_factor": 1.0109951189999022,
+      "enskog_reference_steps": 394,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 0.0,
+      "enskog_reference_maximum_packing_fraction": 0.0027300547972225497,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "3bd4fdfc08b7717cb37971ee884f454a05f95688e49bf044bdbacdc9ccdf5475"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "1e3ecdf570f46ae930a4b4df8a9d5625e9ae89be67584698fa43899186ce386c"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "0178a19d08b636f12eaa82f444bca3abce978ad6ffa6d89eb654b6f918395a57"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "f3a4a167a13ee6f2ceac7c26bafae9e19a414ac7d7beacce1c2bf035aee470bc"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000524288_kn-0p020000",
+      "particle_count": 524288,
+      "target_knudsen": 0.02,
+      "particle_diameter": 0.005179914777775431,
+      "maximum_initial_packing_fraction": 0.030522940544445123,
+      "initial_maximum_compressibility_factor": 1.1319455300616212,
+      "enskog_reference_steps": 421,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 1.545841025654632e-16,
+      "enskog_reference_maximum_packing_fraction": 0.030522940544445116,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "e4d4cdcd42e48f70ff3cd230394a67361abbf28ecb2bc598833a683e0eedcc7d"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "7bc661ab9a138b7f3c984ef5834051bd1940f2d3d25ba05503fc249d126031be"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "c5e70503040a0f8f8a152577e3c233a980c99f1cf27bd44eadf8d99864103eb5"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "9fc53868fa2a3c4ffe942b95ede06e485ffa5029839a3ca3294043b534cbbd4c"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000524288_kn-0p050000",
+      "particle_count": 524288,
+      "target_knudsen": 0.05,
+      "particle_diameter": 0.00327606575666706,
+      "maximum_initial_packing_fraction": 0.007721761040507719,
+      "initial_maximum_compressibility_factor": 1.0314916882158174,
+      "enskog_reference_steps": 399,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 0.0,
+      "enskog_reference_maximum_packing_fraction": 0.007721761040507718,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "718def141416873e6d10db155d5ac64033db3c9ee53cd06924c16efe2ebab864"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "8323f8db7050bf97c6431d4b3ebf6258a6302ec745ab74bac22f286c2fbf13e4"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "af824ea1f5088e02bfb539b5a35b1fee702dcbf5e8a7c021a21a13c696730d22"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "447d814377be4ba6479fd860dbb8c4d877cd7aa86c0936a0cbebc6ea749d64a3"
+        }
+      ]
+    },
+    {
+      "cell_id": "n-000524288_kn-0p100000",
+      "particle_count": 524288,
+      "target_knudsen": 0.1,
+      "particle_diameter": 0.002316528312152316,
+      "maximum_initial_packing_fraction": 0.0027300547972225497,
+      "initial_maximum_compressibility_factor": 1.0109951189999022,
+      "enskog_reference_steps": 394,
+      "enskog_reference_relative_mass_drift": 2.220446049250313e-16,
+      "enskog_reference_relative_energy_drift": 0.0,
+      "enskog_reference_maximum_packing_fraction": 0.0027300547972225492,
+      "sources": [
+        {
+          "seed": 20260730,
+          "macroscopic_sha256": "6060ce174bfa696e93d1e80324e4beee9f7d6b3274429b41eea6b929a9a742e4"
+        },
+        {
+          "seed": 20260731,
+          "macroscopic_sha256": "67924b71a7254c9c76226073d3bab171d414435883d46e609542f16fd3da0ed7"
+        },
+        {
+          "seed": 20260732,
+          "macroscopic_sha256": "97f298178e239a71b6aa2363870a32c7f37b09b7103704d1ea2a119d11955170"
+        },
+        {
+          "seed": 20260733,
+          "macroscopic_sha256": "30bbcde0183d29a773111fb754e555c50ae850c4250fff1a08100d57918f0072"
+        }
+      ]
+    }
+  ]
+}

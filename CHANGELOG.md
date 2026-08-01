@@ -24,6 +24,14 @@ and releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Archived results from the complete 36-trajectory CUDA scan, including the
   observed near-\(N^{-1/2}\) confidence-band scaling, local-Kn quantiles,
   field/Euler comparisons, and explicitly flagged wave-marker diagnostics.
+- An independent Carnahan--Starling Enskog--Euler reference, paired
+  kinetic/mechanical pressure comparisons, a 2048/4096-cell reference check,
+  and velocity-error diagnostics that separate normalization, quiet-region
+  noise, active-region shape, amplitude, and spatial shift.
+- A conservative one-dimensional Enskog Navier--Stokes--Fourier reference
+  with first-Sonine shear viscosity, bulk viscosity, and thermal conductivity,
+  plus three-model field/error plots, transport diagnostics, and an archived
+  512/1024-cell reference check.
 
 ## [0.1.0] - 2026-07-31
 

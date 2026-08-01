@@ -494,7 +494,8 @@ also raises the maximum initial packing fraction from 0.27% at Kn=0.10 to
 3.05% at Kn=0.02. Finite-Kn transport, excluded-volume effects, coarse-graining,
 and Euler-reference error are consequently not fully separated by this
 matrix. Also, relative velocity error is amplified by slabs where the Euler
-velocity is close to zero.
+velocity is close to zero: those slabs add particle noise to the numerator of
+the global \(L_2\) metric but almost nothing to its reference norm.
 
 As the confidence bands tighten, the Euler-in-band slab fraction can decrease:
 at Kn=0.02 it falls from 77.3% to 39.1% for density and from 78.1% to 50.0%
@@ -529,6 +530,155 @@ The checked-in [analysis summary](docs/results/n-kn-scan/summary.json),
 [wave table](docs/results/n-kn-scan/wave-scan.csv) record the complete results
 and raw-source hashes. The raw trajectories remain external experiment
 artifacts rather than Git-tracked source files.
+
+## Enskog-Euler comparison and velocity-error diagnosis
+
+Reuse the completed factorial scan to compare the particle fields with both
+the ideal Euler reference and an inviscid hard-sphere reference:
+
+```bash
+python3 tools/analyze_enskog_comparison.py \
+  configs/shock_tube_n_kn_scan.json \
+  output/n-kn-scan
+```
+
+The second reference closes the conservation laws with the
+Carnahan--Starling hard-sphere equation of state,
+
+\[
+\eta=\frac{\pi nd^3}{6},\qquad
+Z(\eta)=\frac{1+\eta+\eta^2-\eta^3}{(1-\eta)^3},\qquad
+p=nk_BT Z.
+\]
+
+This is the equilibrium, inviscid hydrodynamic limit associated with Enskog
+theory; it is not a solver for the full Enskog kinetic equation and contains
+no Enskog viscosity or heat conduction. The particle CSV stores the kinetic
+pressure \(nk_BT\), not collisional momentum flux. Consequently, the matched
+hard-sphere pressure comparison applies the same Carnahan--Starling closure
+to every particle seed before averaging.
+
+At \(N=524{,}288\), replacing ideal Euler by this Enskog-Euler reference does
+not explain the velocity discrepancy:
+
+| target Kn | ideal-Euler velocity rel. \(L_2\) | Enskog-Euler velocity rel. \(L_2\) | ideal-reference peak-normalized RMS difference | ideal-reference 95% CI relative RMS half-width |
+|---:|---:|---:|---:|---:|
+| 0.02 | 17.70% | 18.03% | 5.65% | 21.09% |
+| 0.05 | 19.46% | 19.82% | 6.20% | 20.44% |
+| 0.10 | 21.66% | 21.79% | 6.91% | 21.37% |
+
+The apparently large percentage is primarily a metric-support effect. The
+reference velocity is appreciably nonzero in only about 18% of the tube, so
+its domain RMS is only about 31.9% of its peak. A physically modest 5.6--6.9%
+peak-normalized RMS discrepancy therefore becomes a 17.7--21.7% domain
+relative \(L_2\) value. Across the nine cells, 45.6% of the squared velocity
+error lies in nominally quiet slabs, and the four-seed confidence half-width
+is comparable to or larger than the measured mean-field discrepancy.
+
+![Velocity error under domain, peak, active-region, and shift-aligned normalizations](docs/results/enskog-comparison/velocity-error-diagnostics.png)
+
+The velocity profiles remain strongly correlated with the references
+(0.965--0.985). Optimally shifting a reference by at most one 0.015625-wide
+slab reduces the median ideal relative error only from 21.37% to 20.96%, so
+wave-position error is not the dominant cause. At Kn=0.02 the
+Carnahan--Starling correction raises the initial left-state pressure by 13.2%
+and predicts a slightly stronger velocity pulse; this marginally worsens the
+velocity error while improving the largest-\(N\) density error from 3.37% to
+3.23%. It does not yield a general four-field improvement.
+
+![Particle fields against ideal Euler and Carnahan--Starling Enskog-Euler references](docs/results/enskog-comparison/enskog-field-comparison.png)
+
+The 2048/4096-cell reference check changes the worst-case Enskog velocity by
+only 0.259% in relative \(L_2\), far below the particle/reference difference.
+The remaining mismatch is therefore more plausibly a combination of finite-Kn
+dissipative broadening and finite-seed velocity noise than continuum-reference
+grid error or the equilibrium hard-sphere equation of state alone. See the
+[machine-readable summary](docs/results/enskog-comparison/summary.json),
+[field comparison](docs/results/enskog-comparison/field-comparison.csv),
+[velocity diagnostics](docs/results/enskog-comparison/velocity-diagnostics.csv),
+and [reference grid check](docs/results/enskog-comparison/reference-grid-check.csv).
+
+## Enskog Navier--Stokes--Fourier transport comparison
+
+The next reference adds the first-Sonine Enskog shear viscosity, bulk
+viscosity, and thermal conductivity to the same Carnahan--Starling pressure
+closure:
+
+```bash
+python3 tools/analyze_enskog_nsf_comparison.py \
+  configs/shock_tube_n_kn_scan.json \
+  output/n-kn-scan \
+  --nsf-cells 512
+```
+
+For number density \(n\), hard-sphere diameter \(d\), contact value
+\(\chi=(1-\eta/2)/(1-\eta)^3\), and dilute hard-sphere coefficients
+\(\mu_B,\kappa_B\), the implemented longitudinal stress and heat flux are
+
+\[
+\tau_{xx}=\left(\frac{4}{3}\mu+\zeta\right)\partial_x u,
+\qquad q_x=-\kappa\partial_xT,
+\]
+
+\[
+\begin{aligned}
+\zeta & =\frac{4}{9}n^2d^4\chi\sqrt{\pi m k_BT},\\
+\mu & =\frac{\mu_B}{\chi}
+ \left(1+\frac{4\pi nd^3\chi}{15}\right)^2+\frac{3}{5}\zeta,\\
+\kappa & =\frac{\kappa_B}{\chi}
+ \left(1+\frac{2\pi nd^3\chi}{5}\right)^2
+ +\frac{3k_B}{2m}\zeta.
+\end{aligned}
+\]
+
+The finite-volume solver uses the Enskog-Euler MUSCL/Rusanov/SSP-RK2
+hyperbolic update, centered conservative dissipative fluxes, adiabatic
+reflecting walls, and the minimum of hyperbolic and explicit diffusion CFL
+bounds. It is a first-gradient continuum closure, not a numerical solution of
+the nonlocal Enskog kinetic equation.
+
+At \(N=524{,}288\), the final-time relative \(L_2\) errors change as follows
+(ideal Euler → Enskog NSF; parentheses show the relative change in error):
+
+| target Kn | \(n\) | \(u_x\) | \(T\) | mechanical \(p\) |
+|---:|---:|---:|---:|---:|
+| 0.02 | 3.37% → 2.97% (-11.8%) | 17.70% → 9.42% (-46.8%) | 3.11% → 1.19% (-61.7%) | 4.27% → 3.24% (-24.0%) |
+| 0.05 | 2.00% → 1.88% (-6.1%) | 19.46% → 11.86% (-39.1%) | 3.47% → 1.80% (-48.0%) | 3.53% → 2.48% (-29.9%) |
+| 0.10 | 2.15% → 2.58% (+20.1%) | 21.66% → 21.76% (+0.5%) | 3.88% → 2.45% (-36.9%) | 4.05% → 3.48% (-14.2%) |
+
+This isolates the main cause of the low-Kn velocity mismatch: equilibrium
+excluded-volume pressure was not enough, while dissipative momentum and heat
+transport reproduce much of the particle pulse broadening. The result is
+consistent across all three particle counts. At Kn=0.10, however, the NSF
+velocity no longer improves and the density error grows. That is useful
+negative evidence that a first-order gradient expansion is leaving its
+hydrodynamic regime; higher-order or kinetic Enskog physics is then the more
+appropriate comparison.
+
+![Particle fields against ideal Euler, Enskog-Euler, and Enskog NSF references](docs/results/enskog-nsf-comparison/enskog-nsf-field-comparison.png)
+
+![Relative field errors for the three continuum references](docs/results/enskog-nsf-comparison/model-error-comparison.png)
+
+![Velocity profiles show low-Kn transport improvement and the Kn=0.10 breakdown](docs/results/enskog-nsf-comparison/velocity-profile-comparison.png)
+
+The 512/1024-cell check changes the worst-case low-Kn NSF velocity by only
+0.0311%; all 512-cell formal runs remain positive without retrying a step,
+and their relative mass/energy drift stays below \(7.4\times10^{-15}\). The
+[summary](docs/results/enskog-nsf-comparison/summary.json),
+[field comparison](docs/results/enskog-nsf-comparison/field-comparison.csv),
+[velocity diagnostics](docs/results/enskog-nsf-comparison/velocity-diagnostics.csv),
+[transport diagnostics](docs/results/enskog-nsf-comparison/transport-coefficients.csv),
+and [grid check](docs/results/enskog-nsf-comparison/reference-grid-check.csv)
+record the complete comparison and input/tool hashes.
+
+This reference intentionally uses NumPy rather than adding PhiFlow as a
+project dependency. The available PhiFlow environment is useful for generic
+tensor operations and differentiable PDE experiments, but it does not remove
+the need to implement the compressible conservative flux, Carnahan--Starling
+thermodynamics, and state-dependent Enskog transport used here. Keeping this
+small one-dimensional reference independent also makes the result easier to
+reproduce in CI. PhiFlow remains a reasonable later option for inverse or
+differentiable experiments.
 
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
@@ -650,6 +800,12 @@ The current scaffold provides:
   bands, and delete-one-seed jackknife wave-speed uncertainty;
 - a density-preserving factorial \(N\times Kn\) runner with resumable cells,
   local-Kn reporting, field-error trends, and uncertainty-scaling plots;
+- an inviscid Carnahan--Starling Enskog--Euler reference with matched
+  hard-sphere pressure closure, grid refinement, and velocity-error
+  decomposition;
+- a conservative Enskog Navier--Stokes--Fourier reference with first-Sonine
+  shear/bulk viscosity and heat conduction, three-model error plots, and a
+  reference-grid check;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -674,5 +830,10 @@ output times as a diagnostic-only overlay. Particle/Euler wave locations and
 propagation speeds now have a first passing comparison, and the reduced-size
 eight-seed field bands are complete. The formal 36-trajectory
 particle-count/Knudsen CUDA matrix and its archived cross-cell analysis are
-also complete. The next comparison should separate finite-Kn transport from
-hard-sphere non-ideality, rather than extending the same matrix blindly.
+also complete. The equilibrium Enskog-Euler comparison shows that the
+hard-sphere equation of state alone does not remove the velocity discrepancy.
+The Enskog Navier--Stokes--Fourier comparison then cuts the largest-\(N\)
+velocity error by 46.8% at Kn=0.02 and 39.1% at Kn=0.05, but provides no
+velocity improvement at Kn=0.10. This separates low-Kn dissipative broadening
+from the higher-Kn regime where a first-order continuum closure is no longer
+enough.
