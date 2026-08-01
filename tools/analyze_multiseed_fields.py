@@ -12,7 +12,6 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 os.environ.setdefault(
     "MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "particles-matplotlib")
@@ -26,8 +25,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
 from euler_reference import (  # noqa: E402
+    EulerSolution,
     EulerParameters,
     solve_euler_reference,
+)
+from analyze_wave_kinematics import (  # noqa: E402
+    FEATURE_LABELS,
+    FieldFrame as WaveFieldFrame,
+    analyze as analyze_wave_kinematics,
+    load_extraction_config,
 )
 from run_multiseed_shock_tube import (  # noqa: E402
     BatchConfig,
@@ -88,6 +94,14 @@ def parse_arguments() -> argparse.Namespace:
         help="statistics output directory; defaults to BATCH_OUTPUT/statistics",
     )
     parser.add_argument(
+        "--wave-config",
+        type=Path,
+        help=(
+            "optional wave_kinematics JSON; when supplied, estimate marker "
+            "speed uncertainty from the seed-mean field by jackknife"
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="validate Student-t intervals and aggregation arithmetic",
@@ -141,6 +155,15 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def portable_path(path: Path) -> str:
+    resolved = path.resolve()
+    repository = Path(__file__).resolve().parents[1]
+    try:
+        return str(resolved.relative_to(repository))
+    except ValueError:
+        return str(resolved)
 
 
 def load_macroscopic_rows(
@@ -282,7 +305,7 @@ def euler_at_particle_grid(
     effective_config: Path,
     batch: BatchConfig,
     ensemble: Ensemble,
-) -> np.ndarray:
+) -> tuple[np.ndarray, EulerSolution]:
     solution = solve_euler_reference(
         effective_config,
         [
@@ -312,7 +335,7 @@ def euler_at_particle_grid(
                 euler_x,
                 frame.fields[field],
             )
-    return values
+    return values, solution
 
 
 def confidence_statistics(
@@ -497,6 +520,322 @@ def write_frame_summary(
         writer.writerows(rows)
 
 
+def wave_frames(
+    ensemble: Ensemble,
+    values: np.ndarray,
+) -> dict[float, WaveFieldFrame]:
+    return {
+        float(time): WaveFieldFrame(
+            time=float(time),
+            x=ensemble.x,
+            number_density=values[frame_index, :, 0],
+            bulk_velocity_x=values[frame_index, :, 1],
+            pressure=values[frame_index, :, 3],
+        )
+        for frame_index, time in enumerate(ensemble.times)
+    }
+
+
+def jackknife_standard_error(estimates: np.ndarray) -> float:
+    if estimates.ndim != 1 or len(estimates) < 2:
+        raise ValueError("jackknife requires at least two scalar estimates")
+    center = float(np.mean(estimates))
+    variance = (
+        (len(estimates) - 1)
+        / len(estimates)
+        * float(np.sum(np.square(estimates - center)))
+    )
+    return math.sqrt(max(variance, 0.0))
+
+
+def aggregate_wave_speeds(
+    effective_config: Path,
+    ensemble: Ensemble,
+    euler_solution: EulerSolution,
+    wave_config_path: Path,
+    critical: float,
+) -> tuple[
+    list[dict[str, float | int | str | bool]],
+    dict[str, dict[str, float | bool]],
+]:
+    with effective_config.open(encoding="utf-8") as stream:
+        simulation_config = json.load(stream)
+    initial_condition = simulation_config.get("initial_condition")
+    if not isinstance(initial_condition, dict):
+        raise ValueError("effective config has no initial_condition object")
+    interface_x = float(initial_condition["interface_x"])
+    wave_config = load_extraction_config(wave_config_path)
+    euler_frames = {
+        frame.time: WaveFieldFrame(
+            time=frame.time,
+            x=frame.fields["x_center"],
+            number_density=frame.fields["number_density"],
+            bulk_velocity_x=frame.fields["bulk_velocity_x"],
+            pressure=frame.fields["pressure"],
+        )
+        for frame in euler_solution.frames
+    }
+    ensemble_mean = np.mean(ensemble.values, axis=0)
+    _, _, _, full_summary, _ = analyze_wave_kinematics(
+        wave_frames(ensemble, ensemble_mean),
+        euler_frames,
+        interface_x,
+        wave_config,
+    )
+
+    replicate_rows: list[dict[str, float | int | str | bool]] = []
+    replicate_speeds: dict[str, list[float]] = {
+        feature: [] for feature in FEATURE_LABELS
+    }
+    total = np.sum(ensemble.values, axis=0)
+    for seed_index, omitted_seed in enumerate(ensemble.seeds):
+        leave_one_out_mean = (
+            total - ensemble.values[seed_index]
+        ) / (len(ensemble.seeds) - 1)
+        _, _, _, feature_summary, _ = analyze_wave_kinematics(
+            wave_frames(ensemble, leave_one_out_mean),
+            euler_frames,
+            interface_x,
+            wave_config,
+        )
+        for feature, metrics in feature_summary.items():
+            leave_one_out_speed = float(metrics["particle_speed"])
+            full_speed = float(
+                full_summary[feature]["particle_speed"]
+            )
+            euler_speed = float(metrics["euler_speed"])
+            replicate_speeds[feature].append(leave_one_out_speed)
+            replicate_rows.append(
+                {
+                    "omitted_seed": omitted_seed,
+                    "feature": feature,
+                    "leave_one_out_speed": leave_one_out_speed,
+                    "full_ensemble_speed": full_speed,
+                    "euler_speed": euler_speed,
+                    "leave_one_out_minus_full": (
+                        leave_one_out_speed - full_speed
+                    ),
+                    "leave_one_out_fit_rmse": float(
+                        metrics["particle_fit_rmse"]
+                    ),
+                    "leave_one_out_mean_absolute_position_error": float(
+                        metrics["mean_absolute_position_error"]
+                    ),
+                    "leave_one_out_marker_check_passed": bool(
+                        metrics["passed"]
+                    ),
+                }
+            )
+
+    summary: dict[str, dict[str, float | bool]] = {}
+    for feature in FEATURE_LABELS:
+        samples = np.array(
+            replicate_speeds[feature],
+            dtype=np.float64,
+        )
+        full_speed = float(full_summary[feature]["particle_speed"])
+        leave_one_out_mean = float(np.mean(samples))
+        standard_error = jackknife_standard_error(samples)
+        half_width = critical * standard_error
+        lower = full_speed - half_width
+        upper = full_speed + half_width
+        bias_estimate = (
+            (len(samples) - 1)
+            * (leave_one_out_mean - full_speed)
+        )
+        bias_corrected = full_speed - bias_estimate
+        euler_speed = float(full_summary[feature]["euler_speed"])
+        summary[feature] = {
+            "full_ensemble_speed": full_speed,
+            "leave_one_out_mean_speed": leave_one_out_mean,
+            "jackknife_bias_estimate": bias_estimate,
+            "jackknife_bias_corrected_speed": bias_corrected,
+            "jackknife_standard_error": standard_error,
+            "ci95_lower": lower,
+            "ci95_upper": upper,
+            "ci95_half_width": half_width,
+            "euler_speed": euler_speed,
+            "full_ensemble_minus_euler": full_speed - euler_speed,
+            "relative_full_ensemble_difference": (
+                abs(full_speed - euler_speed)
+                / max(abs(euler_speed), 1.0e-15)
+            ),
+            "euler_inside_ci95": lower <= euler_speed <= upper,
+            "full_ensemble_fit_rmse": float(
+                full_summary[feature]["particle_fit_rmse"]
+            ),
+            "full_ensemble_mean_absolute_position_error": float(
+                full_summary[feature]["mean_absolute_position_error"]
+            ),
+            "full_ensemble_marker_check_passed": bool(
+                full_summary[feature]["passed"]
+            ),
+        }
+    return replicate_rows, summary
+
+
+def write_wave_jackknife_rows(
+    path: Path,
+    rows: list[dict[str, float | int | str | bool]],
+) -> None:
+    fieldnames = [
+        "omitted_seed",
+        "feature",
+        "leave_one_out_speed",
+        "full_ensemble_speed",
+        "euler_speed",
+        "leave_one_out_minus_full",
+        "leave_one_out_fit_rmse",
+        "leave_one_out_mean_absolute_position_error",
+        "leave_one_out_marker_check_passed",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    **row,
+                    "leave_one_out_marker_check_passed": (
+                        "yes"
+                        if row["leave_one_out_marker_check_passed"]
+                        else "no"
+                    ),
+                }
+            )
+
+
+def write_wave_speed_summary(
+    path: Path,
+    seed_count: int,
+    summary: dict[str, dict[str, float | bool]],
+) -> None:
+    fieldnames = [
+        "feature",
+        "seed_count",
+        "full_ensemble_speed",
+        "leave_one_out_mean_speed",
+        "jackknife_bias_estimate",
+        "jackknife_bias_corrected_speed",
+        "jackknife_standard_error",
+        "ci95_lower",
+        "ci95_upper",
+        "ci95_half_width",
+        "euler_speed",
+        "full_ensemble_minus_euler",
+        "relative_full_ensemble_difference",
+        "euler_inside_ci95",
+        "full_ensemble_fit_rmse",
+        "full_ensemble_mean_absolute_position_error",
+        "full_ensemble_marker_check_passed",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer.writeheader()
+        for feature, metrics in summary.items():
+            writer.writerow(
+                {
+                    "feature": feature,
+                    "seed_count": seed_count,
+                    **metrics,
+                    "euler_inside_ci95": (
+                        "yes" if metrics["euler_inside_ci95"] else "no"
+                    ),
+                    "full_ensemble_marker_check_passed": (
+                        "yes"
+                        if metrics["full_ensemble_marker_check_passed"]
+                        else "no"
+                    ),
+                }
+            )
+
+
+def write_wave_speed_plot(
+    path: Path,
+    replicate_rows: list[dict[str, float | int | str | bool]],
+    summary: dict[str, dict[str, float | bool]],
+) -> None:
+    figure, axis = plt.subplots(
+        figsize=(10.5, 6.2),
+        facecolor=BACKGROUND,
+    )
+    figure.subplots_adjust(
+        left=0.1,
+        right=0.97,
+        top=0.86,
+        bottom=0.14,
+    )
+    style_axis(axis)
+    features = list(FEATURE_LABELS)
+    for feature_index, feature in enumerate(features):
+        rows = [
+            row for row in replicate_rows if row["feature"] == feature
+        ]
+        speeds = np.array(
+            [float(row["leave_one_out_speed"]) for row in rows]
+        )
+        jitter = np.linspace(-0.14, 0.14, len(speeds))
+        axis.scatter(
+            feature_index + jitter,
+            speeds,
+            color=PARTICLE_COLOR,
+            alpha=0.55,
+            s=32,
+            label=(
+                "leave-one-seed-out estimate"
+                if feature_index == 0
+                else None
+            ),
+        )
+        metrics = summary[feature]
+        axis.errorbar(
+            feature_index,
+            float(metrics["full_ensemble_speed"]),
+            yerr=float(metrics["ci95_half_width"]),
+            color=PARTICLE_COLOR,
+            marker="o",
+            markersize=8,
+            capsize=7,
+            linewidth=2.2,
+            label=(
+                "8-seed mean-field estimate ± jackknife 95% CI"
+                if feature_index == 0
+                else None
+            ),
+        )
+        axis.scatter(
+            feature_index,
+            float(metrics["euler_speed"]),
+            color=EULER_COLOR,
+            marker="D",
+            s=58,
+            zorder=5,
+            label="ideal Euler" if feature_index == 0 else None,
+        )
+    axis.axhline(0.0, color=MUTED, linewidth=1.0)
+    axis.set_xticks(
+        range(len(features)),
+        [FEATURE_LABELS[feature] for feature in features],
+    )
+    axis.set_ylabel("marker propagation speed")
+    axis.set_title("Delete-one-seed sensitivity of nonlinear wave markers")
+    axis.legend(
+        facecolor=PANEL,
+        edgecolor=GRID,
+        labelcolor=FOREGROUND,
+        fontsize=9,
+    )
+    figure.suptitle(
+        "Jackknife uncertainty in shock-tube kinematics",
+        color=FOREGROUND,
+        fontsize=16,
+        fontweight="bold",
+        y=0.96,
+    )
+    figure.savefig(path, dpi=150, facecolor=BACKGROUND)
+    plt.close(figure)
+
+
 def style_axis(axis: plt.Axes) -> None:
     axis.set_facecolor(PANEL)
     axis.tick_params(colors=FOREGROUND)
@@ -595,7 +934,16 @@ def write_summary_json(
     ensemble: Ensemble,
     critical: float,
     frame_rows: list[dict[str, float | int | str]],
+    wave_config_path: Path | None,
+    wave_summary: dict[str, dict[str, float | bool]] | None,
 ) -> None:
+    wave_passed = (
+        wave_summary is None
+        or all(
+            bool(metrics["full_ensemble_marker_check_passed"])
+            for metrics in wave_summary.values()
+        )
+    )
     final_frame = int(ensemble.frames[-1])
     final_rows = [
         row for row in frame_rows if row["frame"] == final_frame
@@ -616,7 +964,12 @@ def write_summary_json(
         )
     value = {
         "schema_version": 1,
-        "status": "passed",
+        "status": (
+            "passed"
+            if wave_passed
+            else "passed_with_wave_marker_warning"
+        ),
+        "field_acceptance_status": "passed",
         "method": {
             "independent_random_seeds": True,
             "confidence_interval": (
@@ -644,6 +997,29 @@ def write_summary_json(
             }
             for row in final_rows
         },
+        "wave_kinematics": (
+            {
+                "status": "passed" if wave_passed else "warning",
+                "method": {
+                    "point_estimate": (
+                        "wave-marker speed extracted from the full "
+                        "independent-seed mean field"
+                    ),
+                    "uncertainty": (
+                        "delete-one-seed jackknife standard error; "
+                        "approximate two-sided Student-t interval"
+                    ),
+                    "critical_value": critical,
+                },
+                "config": {
+                    "path": portable_path(wave_config_path),
+                    "sha256": sha256_file(wave_config_path),
+                },
+                "features": wave_summary,
+            }
+            if wave_config_path is not None and wave_summary is not None
+            else None
+        ),
         "sources": sources,
     }
     with path.open("w", encoding="utf-8") as stream:
@@ -683,6 +1059,13 @@ def run_self_test() -> int:
     expected_half_width = critical * expected_std / 2.0
     if not np.allclose(half_width[0, 0], expected_half_width):
         raise AssertionError("confidence half-width self-test failed")
+    leave_one_out_means = np.array([3.0, 8.0 / 3.0, 7.0 / 3.0, 2.0])
+    expected_mean_standard_error = expected_std / 2.0
+    if not math.isclose(
+        jackknife_standard_error(leave_one_out_means),
+        expected_mean_standard_error,
+    ):
+        raise AssertionError("jackknife standard-error self-test failed")
     print("multi-seed field statistics self-test")
     print(f"  seeds: {len(ensemble.seeds)}")
     print(f"  degrees of freedom: {len(ensemble.seeds) - 1}")
@@ -717,7 +1100,7 @@ def main() -> int:
     mean, standard_deviation, half_width, critical = (
         confidence_statistics(ensemble)
     )
-    euler = euler_at_particle_grid(
+    euler, euler_solution = euler_at_particle_grid(
         effective_config,
         batch,
         ensemble,
@@ -734,6 +1117,40 @@ def main() -> int:
     frame_summary_path = output / "frame-summary.csv"
     summary_path = output / "summary.json"
     plot_path = output / "final-field-bands.png"
+    wave_config_path: Path | None = None
+    wave_jackknife_rows: list[
+        dict[str, float | int | str | bool]
+    ] | None = None
+    wave_summary: dict[str, dict[str, float | bool]] | None = None
+    wave_jackknife_path: Path | None = None
+    wave_summary_path: Path | None = None
+    wave_plot_path: Path | None = None
+    if arguments.wave_config is not None:
+        wave_config_path = arguments.wave_config.resolve()
+        wave_jackknife_rows, wave_summary = aggregate_wave_speeds(
+            effective_config,
+            ensemble,
+            euler_solution,
+            wave_config_path,
+            critical,
+        )
+        wave_jackknife_path = output / "wave-speed-jackknife.csv"
+        wave_summary_path = output / "wave-speed-summary.csv"
+        wave_plot_path = output / "wave-speed-bands.png"
+        write_wave_jackknife_rows(
+            wave_jackknife_path,
+            wave_jackknife_rows,
+        )
+        write_wave_speed_summary(
+            wave_summary_path,
+            len(ensemble.seeds),
+            wave_summary,
+        )
+        write_wave_speed_plot(
+            wave_plot_path,
+            wave_jackknife_rows,
+            wave_summary,
+        )
     write_seed_summary(
         seed_summary_path,
         batch,
@@ -756,6 +1173,8 @@ def main() -> int:
         ensemble,
         critical,
         frame_rows,
+        wave_config_path,
+        wave_summary,
     )
     write_final_plot(
         plot_path,
@@ -786,12 +1205,44 @@ def main() -> int:
             f"Euler coverage="
             f"{float(row['euler_coverage_fraction']):.6g}"
         )
+    if wave_summary is not None:
+        for feature, metrics in wave_summary.items():
+            print(
+                f"  {feature} speed: ensemble="
+                f"{float(metrics['full_ensemble_speed']):.8g}, "
+                f"95% CI=[{float(metrics['ci95_lower']):.8g}, "
+                f"{float(metrics['ci95_upper']):.8g}], "
+                f"Euler={float(metrics['euler_speed']):.8g}, "
+                f"inside={'yes' if metrics['euler_inside_ci95'] else 'no'}"
+            )
     print(f"  seed summary: {seed_summary_path}")
     print(f"  field bands: {bands_path}")
     print(f"  frame summary: {frame_summary_path}")
     print(f"  summary JSON: {summary_path}")
     print(f"  plot: {plot_path}")
-    print("  overall status: passed")
+    if (
+        wave_jackknife_path is not None
+        and wave_summary_path is not None
+        and wave_plot_path is not None
+    ):
+        print(f"  wave jackknife rows: {wave_jackknife_path}")
+        print(f"  wave speed summary: {wave_summary_path}")
+        print(f"  wave speed plot: {wave_plot_path}")
+    wave_passed = (
+        wave_summary is None
+        or all(
+            bool(metrics["full_ensemble_marker_check_passed"])
+            for metrics in wave_summary.values()
+        )
+    )
+    print(
+        "  overall status: "
+        + (
+            "passed"
+            if wave_passed
+            else "field acceptance passed; wave-marker warning"
+        )
+    )
     return 0
 
 

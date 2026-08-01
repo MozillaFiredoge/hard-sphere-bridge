@@ -14,6 +14,16 @@ and releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   figures for the million-particle shock tube.
 - Resumable independent-seed shock-tube batches and Student-t confidence bands
   for macroscopic particle fields against the Euler reference.
+- Delete-one-seed jackknife uncertainty for nonlinear wave-marker speeds,
+  including an explicit diagnostic warning when a pre-registered marker check
+  is not met.
+- A resumable factorial particle-count/Knudsen shock-tube scan that preserves
+  local number density along the particle-count axis, reports realized local
+  Knudsen ranges, and produces field, uncertainty-scaling, and wave-speed
+  trend tables and figures.
+- Archived results from the complete 36-trajectory CUDA scan, including the
+  observed near-\(N^{-1/2}\) confidence-band scaling, local-Kn quantiles,
+  field/Euler comparisons, and explicitly flagged wave-marker diagnostics.
 
 ## [0.1.0] - 2026-07-31
 

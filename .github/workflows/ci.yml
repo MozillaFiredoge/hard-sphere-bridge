@@ -103,6 +103,10 @@ jobs:
         run: python tools/analyze_wave_kinematics.py --self-test
       - name: Validate multi-seed statistics
         run: python tools/analyze_multiseed_fields.py --self-test
+      - name: Validate particle-count/Knudsen scan
+        run: |
+          python tools/run_n_kn_scan.py --self-test
+          python tools/analyze_n_kn_scan.py --self-test
 
   visualization:
     name: End-to-end visualization smoke test
@@ -163,3 +167,24 @@ jobs:
           test -s build/ci-multiseed/statistics/frame-summary.csv
           test -s build/ci-multiseed/statistics/summary.json
           test -s build/ci-multiseed/statistics/final-field-bands.png
+      - name: Run particle-count/Knudsen smoke scan
+        run: >
+          python tools/run_n_kn_scan.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          --executable build/ci-visualization/particles_cli
+          --output build/ci-n-kn-scan
+      - name: Analyze particle-count/Knudsen smoke scan
+        run: >
+          python tools/analyze_n_kn_scan.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          build/ci-n-kn-scan
+      - name: Check particle-count/Knudsen artifacts
+        run: |
+          test -s build/ci-n-kn-scan/scan-manifest.csv
+          test -s build/ci-n-kn-scan/scan-summary.json
+          test -s build/ci-n-kn-scan/analysis/cell-summary.csv
+          test -s build/ci-n-kn-scan/analysis/field-scan.csv
+          test -s build/ci-n-kn-scan/analysis/trend-summary.csv
+          test -s build/ci-n-kn-scan/analysis/summary.json
+          test -s build/ci-n-kn-scan/analysis/field-error-scan.png
+          test -s build/ci-n-kn-scan/analysis/uncertainty-scaling.png

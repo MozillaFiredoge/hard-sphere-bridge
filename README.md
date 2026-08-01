@@ -51,9 +51,11 @@ problem and not a direct deterministic solver for the Boltzmann equation.
 - The Euler solver is an independent ideal-gas comparison and never changes a
   particle trajectory.
 - The first million-particle shock tube is one configured realization.
-  Its first coarse-graining sensitivity scan is complete; particle-count,
-  Knudsen-number, and multi-seed field studies remain part of the research
-  roadmap.
+  Its first coarse-graining sensitivity scan and an independent eight-seed
+  reduced-size field study are complete. A 36-trajectory particle-count ×
+  Knudsen-number matrix now separates finite-sample uncertainty from part of
+  the kinetic-scale dependence, but it does not by itself establish a
+  hydrodynamic limit.
 
 See `CONTRIBUTING.md` for the evidence required when changing collision or
 interpretation logic.
@@ -341,6 +343,193 @@ and 0.05 exceed the 20% contact-speed limit. The full
 This first result is exploratory; its definitions and thresholds are now
 frozen for the future multi-seed and scale scans.
 
+## Multi-seed uncertainty experiment
+
+Run or resume the eight independent CUDA realizations, then build field and
+wave-marker uncertainty reports:
+
+```bash
+python3 tools/run_multiseed_shock_tube.py \
+  configs/shock_tube_multiseed.json \
+  --executable build/cuda-release/particles_cli \
+  --output output/shock-tube-multiseed
+
+python3 tools/analyze_multiseed_fields.py \
+  configs/shock_tube_multiseed.json \
+  output/shock-tube-multiseed \
+  --wave-config configs/wave_kinematics.json
+```
+
+The formal batch completed all eight seeds through \(t=0.20\), with
+\(N=65{,}536\) particles and 128 macroscopic slabs per seed. Every committed
+state passed the configured energy and surface-gap checks. At the final frame:
+
+| field | relative \(L_2\), seed mean vs Euler | relative RMS 95% CI half-width | Euler-in-band slab fraction |
+|---|---:|---:|---:|
+| number density | 3.09% | 2.88% | 68.8% |
+| bulk velocity \(u_x\) | 22.24% | 21.40% | 75.8% |
+| temperature | 4.11% | 3.46% | 74.2% |
+| pressure | 4.43% | 3.90% | 65.6% |
+
+![Eight-seed hard-sphere field means, Student-t confidence bands, and ideal Euler reference](docs/results/multiseed-fields/final-field-bands.png)
+
+Field bands use two-sided Student-\(t\) intervals for the independent-seed
+mean. Wave-marker locations are nonlinear and are not stable in every raw
+65,536-particle realization, so their uncertainty is instead estimated from
+the full seed-mean field and eight delete-one-seed jackknife replicates:
+
+| marker | 8-seed mean-field \(c\) | jackknife 95% interval | ideal Euler \(c\) |
+|---|---:|---:|---:|
+| rarefaction gradient | -0.790 | [-0.997, -0.584] | -0.797 |
+| contact | +0.696 | [+0.337, +1.055] | +0.698 |
+| compression | +1.385 | [+0.762, +2.008] | +1.689 |
+
+![Delete-one-seed jackknife uncertainty in three wave-marker speeds](docs/results/multiseed-fields/wave-speed-bands.png)
+
+Euler lies inside all three approximate jackknife intervals. The rarefaction
+and contact point estimates closely match Euler, so the +12.3% contact offset
+in the first million-particle realization does not persist in this reduced-size
+ensemble mean. This is not a like-for-like replication: particle count, slab
+count, and scaled diameter differ. The compression marker also misses its
+pre-registered fit-RMSE threshold by a small margin (0.03025 vs 0.03), and its
+wide interval exposes insufficient marker resolution. The result therefore
+supports the averaged field picture but motivates the particle-count and
+Knudsen-number scans; it does not establish convergence to Euler.
+
+The checked-in
+[machine-readable summary](docs/results/multiseed-fields/summary.json),
+[complete field bands](docs/results/multiseed-fields/field-bands.csv), and
+[wave-speed table](docs/results/multiseed-fields/wave-speed-summary.csv)
+record the statistics and hashes of all eight raw sources.
+
+## Particle-count × Knudsen scan
+
+This experiment varies statistical sample size and kinetic scale as
+independent axes. A fixed-domain particle-count change would also change the
+physical number density and therefore Kn. Instead, the scan holds the
+longitudinal tube, local initial number density, temperature profile, and
+target Kn fixed while scaling the periodic transverse area in proportion to
+\(N\). Increasing \(N\) therefore adds transverse samples; it is not presented
+as a fixed-volume Boltzmann–Grad limit.
+
+The nominal initial Knudsen number is defined in the left state using
+\(L_{\mathrm{macro}}=1\):
+
+\[
+Kn_\mathrm{left}=\frac{1}
+{\sqrt{2}\,\pi n_\mathrm{left}d^2L_\mathrm{macro}}.
+\]
+
+[`configs/shock_tube_n_kn_scan.json`](configs/shock_tube_n_kn_scan.json)
+freezes a \(3\times3\times4\) design: three particle counts, three Knudsen
+levels, and four independent seeds per cell.
+
+| \(N\) | transverse \(L_y=L_z\) |
+|---:|---:|
+| 131,072 | 0.353553 |
+| 262,144 | 0.500000 |
+| 524,288 | 0.707107 |
+
+| target \(Kn_\mathrm{left}\) | diameter \(d\) | maximum initial packing fraction |
+|---:|---:|---:|
+| 0.02 | 0.00517991 | 3.05% |
+| 0.05 | 0.00327607 | 0.77% |
+| 0.10 | 0.00231653 | 0.27% |
+
+Prepare or resume all 36 CUDA trajectories with:
+
+```bash
+python3 tools/run_n_kn_scan.py \
+  configs/shock_tube_n_kn_scan.json \
+  --executable build/cuda-release/particles_cli \
+  --output output/n-kn-scan
+```
+
+The runner writes the complete derived matrix before launching work. Use
+`--prepare-only`, `--cell`, `--max-cells`, or `--max-seeds` for inspection and
+staged runs. Existing cells are reused only when their parsed configuration
+is structurally identical.
+
+After every cell has completed, analyze the field and wave trends with:
+
+```bash
+python3 tools/analyze_n_kn_scan.py \
+  configs/shock_tube_n_kn_scan.json \
+  output/n-kn-scan \
+  --wave-config configs/wave_kinematics.json
+```
+
+The analysis writes per-cell conservation and final local-Kn quantiles,
+particle/Euler field errors, Student-\(t\) uncertainty bands, log–log
+finite-sample slopes, and jackknife wave speeds. Its main figures are
+`field-error-scan.png`, `uncertainty-scaling.png`, and
+`wave-speed-scan.png`. The two-count/two-Kn CPU smoke matrix validates the
+pipeline only; its \(t=0.01\) fields are too early and too noisy for a
+fluid-limit conclusion.
+
+All 36 formal CUDA trajectories completed to \(t=0.20\), and every committed
+state passed the configured energy and surface-gap checks. Across the 12
+field/Kn combinations, the fitted 95% CI half-width slopes with particle
+count range from -0.59 to -0.45, with mean -0.508. This is consistent with the
+expected finite-sample \(N^{-1/2}\) signature. The corresponding mean-field
+Euler-error slopes are much shallower, from -0.25 to -0.05, showing that
+increasing the transverse sample size removes noise faster than it removes
+systematic model differences.
+
+![Finite-sample uncertainty decreases approximately as the inverse square root of particle count](docs/results/n-kn-scan/uncertainty-scaling.png)
+
+At the largest particle count, the final-field comparison is:
+
+| target \(Kn_\mathrm{left}\) | density rel. \(L_2\) | velocity rel. \(L_2\) | temperature rel. \(L_2\) | pressure rel. \(L_2\) |
+|---:|---:|---:|---:|---:|
+| 0.02 | 3.37% | 17.70% | 3.11% | 4.27% |
+| 0.05 | 2.00% | 19.46% | 3.47% | 3.53% |
+| 0.10 | 2.15% | 21.66% | 3.88% | 4.05% |
+
+Velocity and temperature move toward the Euler result as Kn decreases, but
+density and pressure are best at the intermediate setting. The scan therefore
+does not support a blanket monotone-convergence claim. Lowering Kn here is
+implemented by increasing the sphere diameter at fixed number density, which
+also raises the maximum initial packing fraction from 0.27% at Kn=0.10 to
+3.05% at Kn=0.02. Finite-Kn transport, excluded-volume effects, coarse-graining,
+and Euler-reference error are consequently not fully separated by this
+matrix. Also, relative velocity error is amplified by slabs where the Euler
+velocity is close to zero.
+
+As the confidence bands tighten, the Euler-in-band slab fraction can decrease:
+at Kn=0.02 it falls from 77.3% to 39.1% for density and from 78.1% to 50.0%
+for pressure between the smallest and largest \(N\). This is not a failed
+coverage test; it is evidence that increasing sample size is exposing a
+spatially structured systematic difference that was previously hidden by
+noise.
+
+![Field error and four-seed confidence-band width across the factorial scan](docs/results/n-kn-scan/field-error-scan.png)
+
+The final local Kn distribution is strongly inhomogeneous. For the
+\(N=524{,}288\) cells, the 5%/median/95% quantiles are approximately
+0.020/0.032/0.076, 0.050/0.081/0.200, and 0.099/0.160/0.407 for the three
+nominal levels. The high quantiles are expected in the low-density right
+state; a single input Kn must not be read as a global property of the evolved
+shock tube.
+
+All three pre-registered wave-marker checks pass at Kn=0.02 for every particle
+count. At \(N=524{,}288\), their speeds are -0.790, +0.742, and +1.687 versus
+ideal-Euler values -0.797, +0.698, and +1.689. Across the full matrix there are
+no extraction failures, but six of 27 marker fits emit pre-registered warnings,
+concentrated in the compression marker and the higher-Kn cells. Four seeds per
+cell give broad jackknife intervals, so these wave results are diagnostics,
+not precise asymptotic estimates.
+
+![Wave-marker speeds and delete-one-seed jackknife intervals across the scan](docs/results/n-kn-scan/wave-speed-scan.png)
+
+The checked-in [analysis summary](docs/results/n-kn-scan/summary.json),
+[per-cell diagnostics](docs/results/n-kn-scan/cell-summary.csv),
+[field table](docs/results/n-kn-scan/field-scan.csv),
+[finite-sample trends](docs/results/n-kn-scan/trend-summary.csv), and
+[wave table](docs/results/n-kn-scan/wave-scan.csv) record the complete results
+and raw-source hashes. The raw trajectories remain external experiment
+artifacts rather than Git-tracked source files.
+
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
 
@@ -457,6 +646,10 @@ The current scaffold provides:
   grid-refinement check, synchronized overlays, and per-field error reports;
 - independent rarefaction/contact/compression marker extraction, constrained
   propagation-speed fits, and a coarse-graining sensitivity report;
+- resumable independent-seed CUDA batches, Student-\(t\) field confidence
+  bands, and delete-one-seed jackknife wave-speed uncertainty;
+- a density-preserving factorial \(N\times Kn\) runner with resumable cells,
+  local-Kn reporting, field-error trends, and uncertainty-scaling plots;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -478,6 +671,8 @@ million-particle shock tube has completed through \(t=0.2\), and its 11
 synchronized states can now be rendered as the micro/meso/macro video above.
 The one-dimensional \(\gamma=5/3\) Euler reference is evaluated at those same
 output times as a diagnostic-only overlay. Particle/Euler wave locations and
-propagation speeds now have a first passing comparison. The next experiment is
-to add multi-seed uncertainty bands, then repeat the measurement across
-particle-count and Knudsen-number scans.
+propagation speeds now have a first passing comparison, and the reduced-size
+eight-seed field bands are complete. The formal 36-trajectory
+particle-count/Knudsen CUDA matrix and its archived cross-cell analysis are
+also complete. The next comparison should separate finite-Kn transport from
+hard-sphere non-ideality, rather than extending the same matrix blindly.

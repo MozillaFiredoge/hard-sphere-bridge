@@ -49,6 +49,8 @@ python tools/euler_reference.py \
   configs/shock_tube.json
 python tools/analyze_wave_kinematics.py --self-test
 python tools/analyze_multiseed_fields.py --self-test
+python tools/run_n_kn_scan.py --self-test
+python tools/analyze_n_kn_scan.py --self-test
 ```
 
 On a CUDA machine:

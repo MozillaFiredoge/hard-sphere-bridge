@@ -1,0 +1,27 @@
+{
+  "experiment": "shock_tube_n_kn_scan",
+  "schema_version": 1,
+  "base_config": "shock_tube_smoke.json",
+  "particle_counts": [2048, 4096],
+  "knudsen_numbers": [0.2, 0.4],
+  "seeds": [20260730, 20260731],
+  "required_backend": "any",
+  "parameterization": {
+    "reference_particle_count": 4096,
+    "characteristic_length": 1.0,
+    "density_reference": "left",
+    "scale_transverse_area_with_particle_count": true
+  },
+  "overrides": {},
+  "statistics": {
+    "confidence_level": 0.95,
+    "euler_cells": 256,
+    "minimum_completed_seeds": 2
+  },
+  "acceptance": {
+    "maximum_absolute_relative_energy_drift": 1e-10,
+    "minimum_committed_surface_gap": -1e-10,
+    "maximum_initial_packing_fraction": 0.05,
+    "maximum_transverse_mean_free_path_ratio": 0.6
+  }
+}

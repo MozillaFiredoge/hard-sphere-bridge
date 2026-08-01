@@ -167,9 +167,11 @@ install(
 )
 install(
     PROGRAMS
+        tools/analyze_n_kn_scan.py
         tools/analyze_multiseed_fields.py
         tools/analyze_wave_kinematics.py
         tools/euler_reference.py
+        tools/run_n_kn_scan.py
         tools/run_multiseed_shock_tube.py
         tools/visualize_shock_tube.py
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hard-sphere-bridge/tools
