@@ -39,6 +39,18 @@ and releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   final-time improvements persist, and tracks velocity-pulse amplitude and
   width without launching additional particle trajectories.
 
+### Changed
+
+- Refined the scientific interpretation from a final-frame NSF improvement to
+  a time-resolved result: shear transport explains late-time low-Kn
+  broadening, while the initial kinetic transient and Kn=0.10 remain outside
+  a reliable first-gradient description.
+- Reorganized the README around the synchronized three-scale result, headline
+  quantitative findings, reproduction entry points, and explicit claim
+  boundaries.
+- Extended Python self-tests, end-to-end smoke coverage, installation rules,
+  and archived source hashes to the Enskog transport comparison tools.
+
 ## [0.1.0] - 2026-07-31
 
 ### Added

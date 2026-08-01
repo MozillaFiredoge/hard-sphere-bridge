@@ -7,7 +7,11 @@ CUDA-accelerated Newtonian hard-sphere simulation, with synchronized
 microscopic particle dynamics, mesoscopic phase-space statistics, and
 macroscopic fluid fields.
 
-The project follows one state through three descriptions:
+The project asks a concrete computational question: if only Newtonian free
+flight and elastic hard-sphere collisions are simulated, when do reproducible
+kinetic and fluid-scale structures emerge? It follows the same particle state
+through three descriptions—no SPH/PBF force law and no fluid solver feeds back
+into the particles:
 
 $$
 \{x_i(t),v_i(t)\}_{i=1}^{N}
@@ -15,9 +19,11 @@ $$
 \longrightarrow n(x,t),u_x(x,t),T(x,t),p(x,t).
 $$
 
-The experiment and validation requirements are in
-[`docs/experiment-design.md`](docs/experiment-design.md); mathematical context
-and citations are in [`docs/references.md`](docs/references.md).
+Start with the [headline results](#headline-results), run the
+[CPU smoke test](#quick-start), read the complete
+[experiment design](docs/experiment-design.md), or inspect the
+[archived result tables and figures](docs/results/). Mathematical context and
+citations are collected in [the references](docs/references.md).
 
 ## From particles to fields
 
@@ -35,10 +41,34 @@ positive committed surface gaps, and maximum relative kinetic-energy drift
 configured position, speed, and coarse-graining checks; see
 [the recorded results](docs/results/wave-kinematics/summary.json).
 
+## Headline results
+
+Factorial-scan values below use the largest sampled population,
+\(N=524{,}288\), unless the row explicitly summarizes all scan cells.
+
+| Question | Evidence | Result |
+|---|---|---|
+| Can the hard-sphere state be followed from particles to fields? | One synchronized \(N=1{,}048{,}576\) shock tube | Complete micro/meso/macro outputs from the same state; no fluid feedback |
+| Does increasing \(N\) remove finite-sample noise? | 36 CUDA trajectories over three \(N\), three Kn, and four seeds | Confidence-band widths scale with mean log--log slope -0.508, close to \(N^{-1/2}\) |
+| Do macroscopic waves propagate at fluid-like speeds? | Rarefaction/contact/compression markers | At the largest low-Kn cell: -0.790, +0.742, +1.687 versus Euler -0.797, +0.698, +1.689 |
+| What explains the low-Kn velocity-profile mismatch? | Same-grid Enskog transport ablation | Shear viscosity is dominant; at Kn=0.02 it improves 8/10 saved frames and lowers the final error by 49.3% |
+| Where does the first-order fluid closure fail? | Full saved-frame comparison | At Kn=0.10, shear raises the mean velocity error by 44.8%; full NSF raises it by 56.5% |
+
+The central result is deliberately bounded. The hard-sphere ensemble develops
+stable coarse-grained shock-tube structure, finite-sample uncertainty behaves
+approximately as expected, and first-order Enskog transport explains much of
+the late-time low-Kn broadening. The same closure is worse during the initial
+kinetic transient and over nearly the entire Kn=0.10 evolution. The negative
+result is part of the project: it identifies where a local first-gradient
+continuum reference stops being credible.
+
+![Velocity error of zero-transport and Enskog transport references over every saved time](docs/results/enskog-transport-evolution/velocity-error-evolution.png)
+
 ## Scientific status
 
 This is an experimental numerical project, not a proof of Hilbert's sixth
-problem and not a direct deterministic solver for the Boltzmann equation.
+problem, not a direct deterministic solver for the Boltzmann equation, and not
+a claim that one finite simulation establishes a hydrodynamic limit.
 
 - The small CPU implementation is a globally event-driven correctness
   reference.
@@ -50,17 +80,25 @@ problem and not a direct deterministic solver for the Boltzmann equation.
   refinement remains required.
 - The Euler solver is an independent ideal-gas comparison and never changes a
   particle trajectory.
-- The first million-particle shock tube is one configured realization.
-  Its first coarse-graining sensitivity scan and an independent eight-seed
-  reduced-size field study are complete. A 36-trajectory particle-count ×
-  Knudsen-number matrix now separates finite-sample uncertainty from part of
-  the kinetic-scale dependence, but it does not by itself establish a
-  hydrodynamic limit.
+- The million-particle shock tube is one configured realization. Independent
+  eight-seed fields and a 36-trajectory particle-count × Knudsen matrix test
+  sampling sensitivity, but four seeds per factorial cell remain a small
+  ensemble.
+- Saved frames from one trajectory are correlated observations, not
+  independent replicates. They test temporal persistence without increasing
+  the effective seed count.
+- Lowering Kn in the factorial scan changes sphere diameter and packing
+  fraction at fixed local number density. Finite-Kn transport and excluded
+  volume are diagnosed separately where possible, not claimed to be fully
+  disentangled.
 
-See `CONTRIBUTING.md` for the evidence required when changing collision or
-interpretation logic.
+See [the experiment design](docs/experiment-design.md) for definitions and
+acceptance criteria, and [the contribution guide](CONTRIBUTING.md) for the
+evidence required when changing collision or interpretation logic.
 
-## Requirements
+## Quick start
+
+### Requirements
 
 - CMake 3.24 or newer;
 - a C++20 compiler;
@@ -69,7 +107,7 @@ interpretation logic.
 - for offline figures, Python 3 with NumPy and Matplotlib;
 - optionally FFmpeg for MP4 encoding.
 
-## Build
+### Build
 
 The quickest CPU-only build uses the checked-in presets:
 
