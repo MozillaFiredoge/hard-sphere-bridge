@@ -50,6 +50,9 @@ class EnskogNsfParameters:
     limiter_theta: float = 1.5
     maximum_packing_fraction: float = 0.49
     transport_scale: float = 1.0
+    shear_viscosity_scale: float = 1.0
+    bulk_viscosity_scale: float = 1.0
+    thermal_conductivity_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,9 @@ def enskog_transport_coefficients(
     boltzmann_constant: float = 1.0,
     gamma: float = 5.0 / 3.0,
     transport_scale: float = 1.0,
+    shear_viscosity_scale: float = 1.0,
+    bulk_viscosity_scale: float = 1.0,
+    thermal_conductivity_scale: float = 1.0,
 ) -> EnskogTransport:
     """Return elastic-hard-sphere Enskog transport coefficients.
 
@@ -119,8 +125,15 @@ def enskog_transport_coefficients(
         raise ValueError("particle mass and Boltzmann constant must be positive")
     if gamma <= 1.0:
         raise ValueError("gamma must be greater than one")
-    if transport_scale < 0.0 or not math.isfinite(transport_scale):
-        raise ValueError("transport scale must be finite and nonnegative")
+    scales = {
+        "transport": transport_scale,
+        "shear-viscosity": shear_viscosity_scale,
+        "bulk-viscosity": bulk_viscosity_scale,
+        "thermal-conductivity": thermal_conductivity_scale,
+    }
+    for name, scale in scales.items():
+        if scale < 0.0 or not math.isfinite(scale):
+            raise ValueError(f"{name} scale must be finite and nonnegative")
     if (
         np.any(number_density <= 0.0)
         or np.any(temperature <= 0.0)
@@ -156,9 +169,9 @@ def enskog_transport_coefficients(
         dilute_thermal * thermal_factor**2 / chi
         + (3.0 / 2.0) * (boltzmann_constant / particle_mass) * bulk
     )
-    shear *= transport_scale
-    bulk *= transport_scale
-    thermal *= transport_scale
+    shear *= transport_scale * shear_viscosity_scale
+    bulk *= transport_scale * bulk_viscosity_scale
+    thermal *= transport_scale * thermal_conductivity_scale
     longitudinal = (4.0 / 3.0) * shear + bulk
     mass_density = particle_mass * number_density
     specific_heat_volume = (
@@ -218,7 +231,10 @@ def _diffusive_operator(
         particle_mass,
         boltzmann_constant,
         parameters.gamma,
-        parameters.transport_scale,
+        transport_scale=parameters.transport_scale,
+        shear_viscosity_scale=parameters.shear_viscosity_scale,
+        bulk_viscosity_scale=parameters.bulk_viscosity_scale,
+        thermal_conductivity_scale=parameters.thermal_conductivity_scale,
     )
     velocity_gradient = (right[:, 1] - left[:, 1]) / dx
     temperature_gradient = (right[:, 2] - left[:, 2]) / dx
@@ -337,8 +353,14 @@ def solve_enskog_nsf_reference(
         raise ValueError("diffusion CFL must lie in (0, 0.25]")
     if not 1.0 <= parameters.limiter_theta <= 2.0:
         raise ValueError("limiter theta must lie in [1, 2]")
-    if parameters.transport_scale < 0.0:
-        raise ValueError("transport scale must be nonnegative")
+    for name, scale in (
+        ("transport", parameters.transport_scale),
+        ("shear-viscosity", parameters.shear_viscosity_scale),
+        ("bulk-viscosity", parameters.bulk_viscosity_scale),
+        ("thermal-conductivity", parameters.thermal_conductivity_scale),
+    ):
+        if scale < 0.0 or not math.isfinite(scale):
+            raise ValueError(f"{name} scale must be finite and nonnegative")
     if not frame_times:
         raise ValueError("at least one output time is required")
     ordered_targets = sorted(
@@ -523,6 +545,39 @@ def run_self_test(config_path: Path) -> int:
         if np.any(value <= 0.0) or not np.all(np.isfinite(value)):
             raise AssertionError("transport coefficient self-test failed")
 
+    shear_only = enskog_transport_coefficients(
+        density,
+        temperature,
+        0.1,
+        bulk_viscosity_scale=0.0,
+        thermal_conductivity_scale=0.0,
+    )
+    if not np.array_equal(
+        shear_only.shear_viscosity, transport.shear_viscosity
+    ):
+        raise AssertionError("shear-only scaling changed shear viscosity")
+    if np.any(shear_only.bulk_viscosity != 0.0):
+        raise AssertionError("shear-only scaling retained bulk viscosity")
+    if np.any(shear_only.thermal_conductivity != 0.0):
+        raise AssertionError("shear-only scaling retained thermal conductivity")
+    if not np.array_equal(
+        shear_only.longitudinal_viscosity,
+        (4.0 / 3.0) * shear_only.shear_viscosity,
+    ):
+        raise AssertionError("shear-only longitudinal viscosity is inconsistent")
+
+    thermal_only = enskog_transport_coefficients(
+        density,
+        temperature,
+        0.1,
+        shear_viscosity_scale=0.0,
+        bulk_viscosity_scale=0.0,
+    )
+    if np.any(thermal_only.momentum_diffusivity != 0.0):
+        raise AssertionError("thermal-only scaling retained momentum diffusion")
+    if np.any(thermal_only.thermal_diffusivity <= 0.0):
+        raise AssertionError("thermal-only scaling removed heat diffusion")
+
     times = [(0, 0.0), (1, 0.02)]
     zero_transport = solve_enskog_nsf_reference(
         config_path,
@@ -562,6 +617,7 @@ def run_self_test(config_path: Path) -> int:
     if abs(viscous.relative_energy_drift) > 1.0e-11:
         raise AssertionError("Enskog NSF self-test lost energy conservation")
     print("Enskog Navier--Stokes--Fourier reference self-test")
+    print("  independent component scaling: passed")
     print(f"  zero-transport maximum difference: {maximum_zero_transport_difference:.3e}")
     print(f"  viscous steps: {viscous.steps}")
     print(f"  diffusion-limited steps: {viscous.diffusion_limited_steps}")

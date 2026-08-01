@@ -169,6 +169,8 @@ install(
     PROGRAMS
         tools/analyze_enskog_comparison.py
         tools/analyze_enskog_nsf_comparison.py
+        tools/analyze_enskog_transport_ablation.py
+        tools/analyze_enskog_transport_evolution.py
         tools/analyze_n_kn_scan.py
         tools/analyze_multiseed_fields.py
         tools/analyze_wave_kinematics.py

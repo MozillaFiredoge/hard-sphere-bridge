@@ -107,6 +107,8 @@ jobs:
         run: |
           python tools/enskog_nsf_reference.py --self-test configs/shock_tube.json
           python tools/analyze_enskog_nsf_comparison.py --self-test
+          python tools/analyze_enskog_transport_ablation.py --self-test
+          python tools/analyze_enskog_transport_evolution.py --self-test
       - name: Validate wave-marker extraction
         run: python tools/analyze_wave_kinematics.py --self-test
       - name: Validate multi-seed statistics
@@ -197,6 +199,18 @@ jobs:
           configs/shock_tube_n_kn_scan_smoke.json
           build/ci-n-kn-scan
           --nsf-cells 128
+      - name: Ablate Enskog transport smoke reference
+        run: >
+          python tools/analyze_enskog_transport_ablation.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          build/ci-n-kn-scan
+          --nsf-cells 128
+      - name: Track Enskog transport smoke reference over time
+        run: >
+          python tools/analyze_enskog_transport_evolution.py
+          configs/shock_tube_n_kn_scan_smoke.json
+          build/ci-n-kn-scan
+          --nsf-cells 128
       - name: Check particle-count/Knudsen artifacts
         run: |
           test -s build/ci-n-kn-scan/scan-manifest.csv
@@ -221,3 +235,21 @@ jobs:
           test -s build/ci-n-kn-scan/enskog-nsf-comparison/enskog-nsf-field-comparison.png
           test -s build/ci-n-kn-scan/enskog-nsf-comparison/model-error-comparison.png
           test -s build/ci-n-kn-scan/enskog-nsf-comparison/velocity-profile-comparison.png
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/field-ablation.csv
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/velocity-ablation.csv
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/velocity-attribution.csv
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/solver-diagnostics.csv
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/bulk-increment-grid-check.csv
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/summary.json
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/transport-ablation-errors.png
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/transport-ablation-velocity.png
+          test -s build/ci-n-kn-scan/enskog-transport-ablation/velocity-error-attribution.png
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/field-evolution.csv
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/velocity-evolution.csv
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/velocity-shape-evolution.csv
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/temporal-summary.csv
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/solver-diagnostics.csv
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/summary.json
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/velocity-error-evolution.png
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/field-error-evolution.png
+          test -s build/ci-n-kn-scan/enskog-transport-evolution/velocity-shape-evolution.png

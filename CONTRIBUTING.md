@@ -55,6 +55,8 @@ python tools/enskog_reference.py --self-test configs/shock_tube.json
 python tools/analyze_enskog_comparison.py --self-test
 python tools/enskog_nsf_reference.py --self-test configs/shock_tube.json
 python tools/analyze_enskog_nsf_comparison.py --self-test
+python tools/analyze_enskog_transport_ablation.py --self-test
+python tools/analyze_enskog_transport_evolution.py --self-test
 ```
 
 On a CUDA machine:

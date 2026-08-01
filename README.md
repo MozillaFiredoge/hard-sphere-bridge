@@ -680,6 +680,114 @@ small one-dimensional reference independent also makes the result easier to
 reproduce in CI. PhiFlow remains a reasonable later option for inverse or
 differentiable experiments.
 
+### Transport ablation: what actually fixes the velocity profile?
+
+The constitutive terms can be switched independently without changing the
+Carnahan--Starling thermodynamics or the finite-volume grid:
+
+```bash
+python3 tools/analyze_enskog_transport_ablation.py \
+  configs/shock_tube_n_kn_scan.json \
+  output/n-kn-scan \
+  --nsf-cells 512
+```
+
+The five variants are zero transport, shear viscosity only, shear plus bulk
+viscosity, heat conduction only, and full NSF. At \(N=524{,}288\), their
+velocity relative \(L_2\) errors are:
+
+| target Kn | zero transport | shear only | shear + bulk | heat only | full NSF |
+|---:|---:|---:|---:|---:|---:|
+| 0.02 | 17.924% | **9.084%** | **9.073%** | 16.124% | 9.418% |
+| 0.05 | 19.701% | **10.940%** | **10.941%** | 19.969% | 11.857% |
+| 0.10 | 21.656% | **20.296%** | **20.297%** | 23.397% | 21.763% |
+
+These zero-transport values differ slightly from the earlier 2048-cell
+Enskog-Euler table because every ablation deliberately uses the same 512-cell
+grid. The comparison identifies shear viscosity as the dominant source of the
+low-Kn velocity improvement: it lowers the error by 36--49% across all three
+particle counts at Kn=0.02 and by 30--44% at Kn=0.05. Adding bulk viscosity
+changes the velocity error by at most 0.12% relative to the shear-only value.
+The direct bulk-induced velocity-profile increment is 0.02969% on 512 cells
+and 0.02972% on 1024 cells, so its small size is resolution-stable.
+
+Heat conduction has a different role. Used alone, it reduces the temperature
+error by 42--64% across the nine cells, but it worsens velocity at Kn=0.05 and
+0.10. Once momentum transport is active, adding heat conduction also raises
+the largest-\(N\) velocity error by 3.8%, 8.4%, and 7.2% at the three Kn
+levels. Because the PDE response is nonlinear, these sequential changes are
+diagnostics rather than additive physical percentages. The result supports a
+more precise interpretation: shear viscosity explains most of the low-Kn
+velocity broadening, heat conduction explains much of the temperature
+smoothing, and the full first-order closure over-diffuses parts of the
+higher-Kn solution.
+
+![Error of each same-grid transport ablation](docs/results/enskog-transport-ablation/transport-ablation-errors.png)
+
+![Velocity-error change relative to zero transport](docs/results/enskog-transport-ablation/velocity-error-attribution.png)
+
+The [summary](docs/results/enskog-transport-ablation/summary.json),
+[field table](docs/results/enskog-transport-ablation/field-ablation.csv),
+[velocity table](docs/results/enskog-transport-ablation/velocity-ablation.csv),
+[sequential attribution](docs/results/enskog-transport-ablation/velocity-attribution.csv),
+[solver diagnostics](docs/results/enskog-transport-ablation/solver-diagnostics.csv),
+and [bulk-increment grid check](docs/results/enskog-transport-ablation/bulk-increment-grid-check.csv)
+record the reproducible result.
+
+### Does the transport improvement persist in time?
+
+The final frame alone can hide a transient failure. Reuse all ten saved
+post-initial frames from each completed scan cell with:
+
+```bash
+python3 tools/analyze_enskog_transport_evolution.py \
+  configs/shock_tube_n_kn_scan.json \
+  output/n-kn-scan \
+  --nsf-cells 512
+```
+
+At the largest particle count, the velocity-error change relative to the
+same-grid zero-transport reference is:
+
+| target Kn | shear: better frames | shear: mean / final change | full NSF: better frames | full NSF: mean / final change |
+|---:|---:|---:|---:|---:|
+| 0.02 | 8 / 10 | -23.6% / -49.3% | 8 / 10 | -22.2% / -47.5% |
+| 0.05 | 4 / 10 | +1.6% / -44.5% | 4 / 10 | +8.0% / -39.8% |
+| 0.10 | 1 / 10 | +44.8% / -6.3% | 0 / 10 | +56.5% / +0.5% |
+
+![Velocity error of the five transport variants through all saved times](docs/results/enskog-transport-evolution/velocity-error-evolution.png)
+
+The low-Kn benefit is therefore temporal, not merely a favorable final-frame
+sample, but it is not instantaneous: at Kn=0.02 the shear curve first becomes
+better at \(t=0.06\). At Kn=0.05 the reference is worse through the early and
+middle transient and becomes better only over the final four frames. At
+Kn=0.10, first-order transport is worse over essentially the whole interval.
+This sharpens the earlier conclusion from “NSF helps at low Kn” to “NSF
+captures late-time low-Kn broadening after an unresolved kinetic transient.”
+
+![Field errors reveal when each constitutive term begins to help](docs/results/enskog-transport-evolution/field-error-evolution.png)
+
+The positive velocity component containing the peak was also measured above
+5% of its peak. At Kn=0.02, shear-only reduces the all-time relative RMSE of
+peak amplitude from 8.77% to 2.99% and of RMS width from 9.82% to 6.71%.
+At Kn=0.05 and 0.10, zero transport remains closer in these aggregate shape
+metrics even though the Kn=0.05 terminal field error eventually improves.
+This separates late-time profile agreement from full-history pulse accuracy.
+
+![Velocity-pulse peak and width expose under- and over-diffusion](docs/results/enskog-transport-evolution/velocity-shape-evolution.png)
+
+The ten frames are repeated observations of the same four seeds, not ten
+independent replicates; they test temporal persistence but do not narrow the
+four-seed sampling uncertainty. The pulse-width result also depends on the
+declared 5%-of-peak support threshold. The archived
+[summary](docs/results/enskog-transport-evolution/summary.json),
+[temporal table](docs/results/enskog-transport-evolution/temporal-summary.csv),
+[field evolution](docs/results/enskog-transport-evolution/field-evolution.csv),
+[velocity evolution](docs/results/enskog-transport-evolution/velocity-evolution.csv),
+[pulse evolution](docs/results/enskog-transport-evolution/velocity-shape-evolution.csv),
+and [solver diagnostics](docs/results/enskog-transport-evolution/solver-diagnostics.csv)
+record the complete result and source hashes. No new CUDA run is required.
+
 CUDA is enabled automatically when `nvcc` is available. A CPU-only build can
 be requested explicitly:
 
@@ -806,6 +914,8 @@ The current scaffold provides:
 - a conservative Enskog Navier--Stokes--Fourier reference with first-Sonine
   shear/bulk viscosity and heat conduction, three-model error plots, and a
   reference-grid check;
+- a same-grid five-model Enskog transport ablation that separates shear,
+  bulk, and thermal effects without rerunning particle trajectories;
 - automatic \(\Delta t,\Delta t/2,\Delta t/4\) comparison with the exact
   event-driven reference;
 - convergence CSV output with state error, collision-count, conflict,
@@ -836,4 +946,7 @@ The Enskog Navier--Stokes--Fourier comparison then cuts the largest-\(N\)
 velocity error by 46.8% at Kn=0.02 and 39.1% at Kn=0.05, but provides no
 velocity improvement at Kn=0.10. This separates low-Kn dissipative broadening
 from the higher-Kn regime where a first-order continuum closure is no longer
-enough.
+enough. The follow-up ablation attributes nearly all low-Kn velocity
+improvement to shear viscosity, finds a resolution-stable but negligible bulk
+contribution at the present packing fractions, and shows that heat conduction
+primarily improves temperature while degrading velocity at higher Kn.

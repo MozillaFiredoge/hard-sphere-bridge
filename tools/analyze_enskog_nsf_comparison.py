@@ -216,6 +216,14 @@ def analyze_cell(
         "target_knudsen": cell.target_knudsen,
         "particle_diameter": cell.particle_diameter,
         "nsf_cells": nsf_cells,
+        "transport_scale": solution.parameters.transport_scale,
+        "shear_viscosity_scale": (
+            solution.parameters.shear_viscosity_scale
+        ),
+        "bulk_viscosity_scale": solution.parameters.bulk_viscosity_scale,
+        "thermal_conductivity_scale": (
+            solution.parameters.thermal_conductivity_scale
+        ),
         "steps": solution.steps,
         "hyperbolic_limited_steps": solution.hyperbolic_limited_steps,
         "diffusion_limited_steps": solution.diffusion_limited_steps,
@@ -686,6 +694,9 @@ def build_summary(
                 ),
                 "heat_flux": "q_x=-kappa*dT/dx",
                 "transport_scale": 1.0,
+                "shear_viscosity_scale": 1.0,
+                "bulk_viscosity_scale": 1.0,
+                "thermal_conductivity_scale": 1.0,
             },
             "analysis_tool_sha256": sha256_file(Path(__file__)),
             "nsf_reference_tool_sha256": sha256_file(

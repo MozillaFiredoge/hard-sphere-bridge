@@ -32,6 +32,12 @@ and releases use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with first-Sonine shear viscosity, bulk viscosity, and thermal conductivity,
   plus three-model field/error plots, transport diagnostics, and an archived
   512/1024-cell reference check.
+- A same-grid Enskog transport ablation that independently controls shear
+  viscosity, bulk viscosity, and thermal conductivity, with five-model error
+  tables, component-attribution plots, and a refined bulk-increment check.
+- A saved-frame Enskog transport evolution comparison that tests whether
+  final-time improvements persist, and tracks velocity-pulse amplitude and
+  width without launching additional particle trajectories.
 
 ## [0.1.0] - 2026-07-31
 
