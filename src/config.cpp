@@ -114,6 +114,18 @@ namespace json = boost::json;
     return number;
 }
 
+[[nodiscard]] double optional_number(
+    const json::object& object,
+    std::string_view key,
+    std::string_view path,
+    double fallback
+) {
+    if (object.find(key) == object.end()) {
+        return fallback;
+    }
+    return required_number(object, key, path);
+}
+
 [[nodiscard]] std::uint64_t required_uint64(
     const json::object& object,
     std::string_view key,
@@ -958,6 +970,20 @@ ShockTubeConfig load_shock_tube_config(const std::filesystem::path& path) {
                 "root.initial_condition.right"
             ),
         },
+        .transverse_shear_amplitude = optional_number(
+            initial,
+            "transverse_shear_amplitude",
+            "root.initial_condition",
+            0.0
+        ),
+        .transverse_shear_mode = static_cast<std::size_t>(
+            optional_number(
+                initial,
+                "transverse_shear_mode",
+                "root.initial_condition",
+                1.0
+            )
+        ),
         .diagnostics = DiagnosticsConfig{
             .microscopic_particle_samples = required_size(
                 diagnostics,

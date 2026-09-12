@@ -171,6 +171,14 @@ struct ShockTubeConfig {
         .bulk_velocity = {},
     };
 
+    // Optional transverse shear wave, u_y(x) = A sin(2 pi n x / Lx), used to
+    // measure the shear viscosity from the stress/strain-rate ratio.  The
+    // profile is an exact solution of the (linearised) Navier-Stokes equation
+    // with no walls, so no new boundary condition is required: the x axis is
+    // simply periodic.  A = 0 reproduces the previous behaviour exactly.
+    double transverse_shear_amplitude{0.0};
+    std::size_t transverse_shear_mode{1};
+
     DiagnosticsConfig diagnostics{};
     ShockTubeEvolutionConfig evolution{};
 };

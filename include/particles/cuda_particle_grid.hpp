@@ -170,6 +170,13 @@ public:
 
     [[nodiscard]] std::size_t particle_count() const noexcept;
 
+    // Paper A: 碰撞传递追踪
+    void setup_collisional_flux_tracking(std::size_t n_interfaces);
+    void reset_collisional_flux();
+    [[nodiscard]] std::vector<double> download_collisional_momentum_flux() const;
+    [[nodiscard]] std::vector<double> download_collisional_energy_flux() const;
+    [[nodiscard]] bool has_collisional_flux_tracking() const noexcept;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

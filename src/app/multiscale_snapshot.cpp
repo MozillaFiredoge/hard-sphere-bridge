@@ -364,6 +364,9 @@ int run_shock_tube(
             config.particle_diameter
     );
     MultiscaleCsvWriter writer{output_directory};
+    InterfaceFluxCsvWriter flux_writer{output_directory};
+    std::vector<Particle> previous_particles = initialized.particles;
+    std::size_t frame_index = 0;
     std::ofstream evolution{
         output_directory / "evolution.csv"
     };
@@ -403,8 +406,8 @@ int run_shock_tube(
     const Vec3 initial_momentum = initial_frame.momentum;
     const double initial_energy = initial_frame.kinetic_energy;
 
-    std::size_t frame_index = 0;
     bool diagnostics_pass = true;
+    double previous_target_time = 0.0;
     const auto record_frame = [&](
         std::string_view backend,
         double target_time,
@@ -430,6 +433,28 @@ int run_shock_tube(
         const auto output_start =
             std::chrono::steady_clock::now();
         writer.write(frame);
+
+        // Paper A: 计算界面通量（非帧0）
+        if (frame_index > 0) {
+            const double flux_interval =
+                time - previous_target_time;
+            auto flux_records = compute_interface_fluxes(
+                previous_particles,
+                state,
+                config.particle_mass,
+                flux_interval,
+                config.domain,
+                config.diagnostics.macroscopic_x_slabs + 1U
+            );
+            for (auto& rec : flux_records) {
+                rec.frame = frame_index;
+                rec.time = time;
+            }
+            flux_writer.write(flux_records);
+        }
+        previous_target_time = time;
+        previous_particles = state;
+
         const double output_seconds =
             seconds_since(output_start);
 
@@ -593,6 +618,11 @@ int run_shock_tube(
             initialized.particles.size()
         };
         device.upload(initialized.particles);
+        // Paper A: 碰撞传递追踪
+        const std::size_t n_interfaces =
+            config.diagnostics.macroscopic_x_slabs + 1U;
+        device.setup_collisional_flux_tracking(n_interfaces);
+        bool coll_header_written = false;
         while (
             current_time <
             config.evolution.end_time - time_tolerance
@@ -621,6 +651,17 @@ int run_shock_tube(
             const double simulation_seconds =
                 seconds_since(simulation_start);
             current_time += result.advanced_time;
+
+            // Paper A: 下载碰撞传递数据
+            std::vector<double> coll_mom_flux;
+            std::vector<double> coll_eng_flux;
+            if (device.has_collisional_flux_tracking()) {
+                coll_mom_flux =
+                    device.download_collisional_momentum_flux();
+                coll_eng_flux =
+                    device.download_collisional_energy_flux();
+            }
+
             const std::vector<Particle> state =
                 device.download_particles();
             record_frame(
@@ -637,6 +678,36 @@ int run_shock_tube(
             if (!result.completed()) {
                 return 1;
             }
+            // Paper A: 写出碰撞传递通量（归一化为通量密度）
+            if (!coll_mom_flux.empty()) {
+                std::ofstream coll_csv(
+                    output_directory / "collisional_flux.csv",
+                    std::ios::app
+                );
+                // record_frame() already advanced frame_index, so the
+                // flux accumulated since the previous frame belongs to
+                // frame_index - 1.  The header is written on first use.
+                if (!coll_header_written) {
+                    coll_csv << "frame,time,interface,x,"
+                             << "collisional_momentum_flux,"
+                             << "collisional_energy_flux\n";
+                    coll_header_written = true;
+                }
+                const double slab_w =
+                    config.domain.extent.x /
+                    static_cast<double>(n_interfaces - 1U);
+                const double dt = config.evolution.frame_interval;
+                const double dA = config.domain.extent.y *
+                    config.domain.extent.z;
+                const double norm = 1.0 / (dt * dA);
+                for (std::size_t j = 0; j < n_interfaces; ++j) {
+                    coll_csv << frame_index - 1U << ',' << current_time
+                             << ',' << j << ',' << j * slab_w
+                             << ',' << coll_mom_flux[j] * norm
+                             << ',' << coll_eng_flux[j] * norm << '\n';
+                }
+            }
+            device.reset_collisional_flux();
             current_time = target_time;
         }
     } else

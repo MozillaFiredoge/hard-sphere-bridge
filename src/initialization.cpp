@@ -546,7 +546,7 @@ InitializationResult initialize_shock_tube(
             )
         );
 
-        return LocalState{
+        LocalState state{
             .relative_number_density =
                 (1.0 - blend) * config.left.relative_number_density +
                 blend * config.right.relative_number_density,
@@ -557,6 +557,21 @@ InitializationResult initialize_shock_tube(
                 (1.0 - blend) * config.left.bulk_velocity +
                 blend * config.right.bulk_velocity,
         };
+
+        // Optional transverse shear wave u_y(x) = A sin(2 pi n x / Lx).
+        // With the x axis periodic this profile joins itself exactly at the
+        // boundary, so it needs no wall and no moving boundary condition.
+        if (config.transverse_shear_amplitude != 0.0) {
+            constexpr double two_pi = 6.283185307179586476925286766559;
+            state.bulk_velocity.y +=
+                config.transverse_shear_amplitude *
+                std::sin(
+                    two_pi * static_cast<double>(config.transverse_shear_mode) *
+                    position.x / config.domain.extent.x
+                );
+        }
+
+        return state;
     };
 
     return initialize_with_profile(

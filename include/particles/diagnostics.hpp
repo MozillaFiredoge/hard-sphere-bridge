@@ -95,6 +95,14 @@ struct MacroscopicSlabState {
     double thermal_energy{};
     double temperature{};
     double pressure{};
+    // Second velocity moments accumulated over slab particles (volume-moment
+    // method).  These give the kinetic stress tensor directly:
+    //   tau_kin,xx = m * velocity_x_squared_sum / volume - rho*u_x^2 - p
+    //   tau_kin,xy = m * velocity_x_y_product_sum / volume  (Couette shear)
+    // Unlike the interface-crossing estimator, they are exact instantaneous
+    // volume averages and carry no recrossing bias.
+    double velocity_x_squared_sum{};
+    double velocity_x_y_product_sum{};
 };
 
 struct MultiscaleDiagnosticFrame {
@@ -192,6 +200,42 @@ private:
     std::ofstream microscopic_;
     std::ofstream phase_space_;
     std::ofstream macroscopic_;
+};
+
+// ---- Paper A: 界面通量追踪 ----
+
+struct InterfaceFluxRecord {
+    std::size_t frame{};
+    double time{};
+    std::size_t interface{};
+    double x{};
+    double mass_flux{};           // 净质量通量 [m/At]
+    double momentum_x_flux{};     // 净 x 动量通量 [m·v_x/At]
+    double energy_flux{};         // 净能量通量 [½m|v|²/At]
+};
+
+[[nodiscard]] std::vector<InterfaceFluxRecord> compute_interface_fluxes(
+    const std::vector<Particle>& particles_old,
+    const std::vector<Particle>& particles_new,
+    double particle_mass,
+    double time_interval,
+    const DomainConfig& domain,
+    std::size_t n_interfaces
+);
+
+class InterfaceFluxCsvWriter {
+public:
+    explicit InterfaceFluxCsvWriter(
+        const std::filesystem::path& output_directory
+    );
+    void write(const std::vector<InterfaceFluxRecord>& records);
+    [[nodiscard]] const std::filesystem::path& path() const noexcept {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+    std::ofstream stream_;
 };
 
 }  // namespace particles

@@ -871,7 +871,13 @@ __global__ void resolve_parallel_window_events(
     std::size_t accepted_event_count,
     DeviceGrid grid,
     double diameter,
-    double window
+    double window,
+    // Paper A: 碰撞传递追踪
+    double* collisional_momentum_flux,
+    double* collisional_energy_flux,
+    std::size_t n_interfaces,
+    double slab_width,
+    double particle_mass
 ) {
     const std::size_t selection_index =
         static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -933,6 +939,44 @@ __global__ void resolve_parallel_window_events(
     const double impulse_x = normal_relative_speed * normal_x;
     const double impulse_y = normal_relative_speed * normal_y;
     const double impulse_z = normal_relative_speed * normal_z;
+
+    // Paper A: 碰撞传递追踪 — 跨界面动量/能量传递
+    if (collisional_momentum_flux && n_interfaces > 0) {
+        // 两个接触位置之间的线段穿越了哪些界面？
+        // interface j 位于 x_j = j * slab_width, j = 0, 1, ..., n_interfaces-1
+        const double x_lo = fmin(first_contact_x, second_contact_x);
+        const double x_hi = fmax(first_contact_x, second_contact_x);
+        const int j_start = static_cast<int>(ceil(x_lo / slab_width));
+        const int j_end   = static_cast<int>(floor(x_hi / slab_width));
+
+        if (j_start <= j_end) {
+            // 碰撞跨越了界面 j_start, ..., j_end
+            // 碰撞传递通量：跨越界面的动量传递 = m·impulse_x
+            // 若 first 在左、second 在右，动量从左向右传递（正号）
+            const int dir = (first_contact_x < second_contact_x) ? 1 : -1;
+            const double mom_transfer =
+                particle_mass * impulse_x * static_cast<double>(dir);
+            // Energy carried across the plane = energy gained by the
+            // particle on the right = m * v_cm . Delta(v_right)
+            // = m * (v_rel . n) * (v_cm . n), signed by the transfer
+            // direction.  Only the full three-dimensional dot product
+            // is frame consistent; the x-component alone is not.
+            const double vcm_dot_n =
+                (0.5 * (first_velocity_x + second_velocity_x) * normal_x) +
+                (0.5 * (first_velocity_y + second_velocity_y) * normal_y) +
+                (0.5 * (first_velocity_z + second_velocity_z) * normal_z);
+            const double energy_transfer =
+                particle_mass * normal_relative_speed * vcm_dot_n *
+                static_cast<double>(dir);
+
+            for (int j = j_start; j <= j_end && j < static_cast<int>(n_interfaces); ++j) {
+                if (j >= 0) {
+                    atomicAdd(&collisional_momentum_flux[j], mom_transfer);
+                    atomicAdd(&collisional_energy_flux[j], energy_transfer);
+                }
+            }
+        }
+    }
 
     const double first_post_x = first_velocity_x - impulse_x;
     const double first_post_y = first_velocity_y - impulse_y;
@@ -1798,6 +1842,10 @@ struct ParticleGrid::Impl {
                 1U,
                 "cudaMalloc selected_conflict_event_index"
             );
+            // Paper A: collisional flux accumulators (allocated on demand)
+            collisional_momentum_flux = nullptr;
+            collisional_energy_flux = nullptr;
+            n_interfaces = 0;
         } catch (...) {
             free_device(position_x);
             free_device(position_y);
@@ -1888,6 +1936,10 @@ struct ParticleGrid::Impl {
         free_device(reflected_axis_count_device);
         free_device(minimum_conflict_key);
         free_device(selected_conflict_event_index);
+        free_device(collisional_momentum_flux);
+        free_device(collisional_energy_flux);
+        free_device(checkpoint_collisional_momentum_flux);
+        free_device(checkpoint_collisional_energy_flux);
     }
 
     std::size_t particle_count{};
@@ -1904,6 +1956,12 @@ struct ParticleGrid::Impl {
     double* checkpoint_velocity_x{};
     double* checkpoint_velocity_y{};
     double* checkpoint_velocity_z{};
+
+    // Paper A: collisional-flux accumulators must take part in the
+    // adaptive-window checkpoint.  A rolled-back window re-simulates the
+    // same collisions, so without this the flux is counted twice.
+    double* checkpoint_collisional_momentum_flux{};
+    double* checkpoint_collisional_energy_flux{};
 
     std::uint32_t* cell_ids{};
     std::uint32_t* particle_indices{};
@@ -1960,6 +2018,11 @@ struct ParticleGrid::Impl {
     std::size_t reflected_axis_count{};
     double earliest_wall_time{std::numeric_limits<double>::infinity()};
     std::uint32_t allocated_cell_count{};
+
+    // Paper A: 碰撞传递追踪
+    double* collisional_momentum_flux{};
+    double* collisional_energy_flux{};
+    std::size_t n_interfaces{};
 
     UniformGrid grid{};
     bool particles_uploaded{};
@@ -4504,7 +4567,14 @@ ParallelWindowStepResult ParticleGrid::advance_parallel_window_step(
                 accepted_event_count,
                 device_grid,
                 diameter,
-                actual_window
+                actual_window,
+                impl_->collisional_momentum_flux,
+                impl_->collisional_energy_flux,
+                impl_->n_interfaces,
+                device_grid.extent_x /
+                    static_cast<double>(impl_->n_interfaces > 0 ?
+                        impl_->n_interfaces - 1U : 1U),
+                1.0  // particle_mass
             );
         check(
             cudaGetLastError(),
@@ -4904,6 +4974,26 @@ ParticleGrid::advance_adaptive_parallel_windows(
             impl_->velocity_z,
             "cudaMemcpy adaptive checkpoint velocity_z"
         );
+        if (impl_->collisional_momentum_flux) {
+            check(
+                cudaMemcpy(
+                    impl_->checkpoint_collisional_momentum_flux,
+                    impl_->collisional_momentum_flux,
+                    impl_->n_interfaces * sizeof(double),
+                    cudaMemcpyDeviceToDevice
+                ),
+                "cudaMemcpy adaptive checkpoint collisional momentum flux"
+            );
+            check(
+                cudaMemcpy(
+                    impl_->checkpoint_collisional_energy_flux,
+                    impl_->collisional_energy_flux,
+                    impl_->n_interfaces * sizeof(double),
+                    cudaMemcpyDeviceToDevice
+                ),
+                "cudaMemcpy adaptive checkpoint collisional energy flux"
+            );
+        }
     };
     const auto restore_checkpoint = [&] {
         copy_component(
@@ -4943,6 +5033,26 @@ ParticleGrid::advance_adaptive_parallel_windows(
         impl_->wall_batch_built = false;
         impl_->candidate_count = 0;
         impl_->event_count = 0;
+        if (impl_->collisional_momentum_flux) {
+            check(
+                cudaMemcpy(
+                    impl_->collisional_momentum_flux,
+                    impl_->checkpoint_collisional_momentum_flux,
+                    impl_->n_interfaces * sizeof(double),
+                    cudaMemcpyDeviceToDevice
+                ),
+                "cudaMemcpy adaptive restore collisional momentum flux"
+            );
+            check(
+                cudaMemcpy(
+                    impl_->collisional_energy_flux,
+                    impl_->checkpoint_collisional_energy_flux,
+                    impl_->n_interfaces * sizeof(double),
+                    cudaMemcpyDeviceToDevice
+                ),
+                "cudaMemcpy adaptive restore collisional energy flux"
+            );
+        }
     };
 
     while (result.advanced_time < duration - time_tolerance) {
@@ -5558,6 +5668,98 @@ ParticleGridDeviceView ParticleGrid::device_view() noexcept {
 
 std::size_t ParticleGrid::particle_count() const noexcept {
     return impl_->particle_count;
+}
+
+// Paper A: 碰撞传递追踪实现
+
+void ParticleGrid::setup_collisional_flux_tracking(
+    const std::size_t n_interfaces
+) {
+    if (n_interfaces == 0) {
+        throw std::invalid_argument(
+            "collisional flux tracking requires at least one interface"
+        );
+    }
+    impl_->n_interfaces = n_interfaces;
+    allocate(
+        impl_->collisional_momentum_flux,
+        n_interfaces,
+        "cudaMalloc collisional_momentum_flux"
+    );
+    allocate(
+        impl_->collisional_energy_flux,
+        n_interfaces,
+        "cudaMalloc collisional_energy_flux"
+    );
+    allocate(
+        impl_->checkpoint_collisional_momentum_flux,
+        n_interfaces,
+        "cudaMalloc checkpoint_collisional_momentum_flux"
+    );
+    allocate(
+        impl_->checkpoint_collisional_energy_flux,
+        n_interfaces,
+        "cudaMalloc checkpoint_collisional_energy_flux"
+    );
+    reset_collisional_flux();
+}
+
+void ParticleGrid::reset_collisional_flux() {
+    if (!impl_->collisional_momentum_flux) return;
+    check(
+        cudaMemset(
+            impl_->collisional_momentum_flux,
+            0,
+            impl_->n_interfaces * sizeof(double)
+        ),
+        "reset collisional momentum flux"
+    );
+    check(
+        cudaMemset(
+            impl_->collisional_energy_flux,
+            0,
+            impl_->n_interfaces * sizeof(double)
+        ),
+        "reset collisional energy flux"
+    );
+}
+
+std::vector<double>
+ParticleGrid::download_collisional_momentum_flux() const {
+    std::vector<double> host(impl_->n_interfaces);
+    if (impl_->collisional_momentum_flux) {
+        check(
+            cudaMemcpy(
+                host.data(),
+                impl_->collisional_momentum_flux,
+                impl_->n_interfaces * sizeof(double),
+                cudaMemcpyDeviceToHost
+            ),
+            "download collisional momentum flux"
+        );
+    }
+    return host;
+}
+
+std::vector<double>
+ParticleGrid::download_collisional_energy_flux() const {
+    std::vector<double> host(impl_->n_interfaces);
+    if (impl_->collisional_energy_flux) {
+        check(
+            cudaMemcpy(
+                host.data(),
+                impl_->collisional_energy_flux,
+                impl_->n_interfaces * sizeof(double),
+                cudaMemcpyDeviceToHost
+            ),
+            "download collisional energy flux"
+        );
+    }
+    return host;
+}
+
+bool ParticleGrid::has_collisional_flux_tracking() const noexcept {
+    return impl_->collisional_momentum_flux != nullptr;
 }
 
 }  // namespace particles::cuda

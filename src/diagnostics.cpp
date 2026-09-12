@@ -386,6 +386,10 @@ MultiscaleDiagnosticFrame measure_multiscale(
         ++slab.particle_count;
         slab.momentum += particle_mass * particle.velocity;
         slab.kinetic_energy += particle_kinetic_energy;
+        slab.velocity_x_squared_sum +=
+            particle.velocity.x * particle.velocity.x;
+        slab.velocity_x_y_product_sum +=
+            particle.velocity.x * particle.velocity.y;
 
         const std::size_t x_bin = std::min(
             static_cast<std::size_t>(
@@ -652,7 +656,8 @@ MultiscaleCsvWriter::MultiscaleCsvWriter(
            "particle_count,number_density,mass_density,"
            "momentum_x,momentum_y,momentum_z,"
            "bulk_velocity_x,bulk_velocity_y,bulk_velocity_z,"
-           "kinetic_energy,thermal_energy,temperature,pressure\n";
+           "kinetic_energy,thermal_energy,temperature,pressure,"
+           "velocity_x_squared_sum,velocity_x_y_product_sum\n";
 }
 
 void MultiscaleCsvWriter::write(
@@ -775,7 +780,9 @@ void MultiscaleCsvWriter::write(
             << slab.kinetic_energy << ','
             << slab.thermal_energy << ','
             << slab.temperature << ','
-            << slab.pressure << '\n';
+            << slab.pressure << ','
+            << slab.velocity_x_squared_sum << ','
+            << slab.velocity_x_y_product_sum << '\n';
     }
 
     summary_.flush();
@@ -786,6 +793,105 @@ void MultiscaleCsvWriter::write(
         throw std::runtime_error(
             "Failed while writing multiscale diagnostics."
         );
+    }
+}
+
+// ---- Paper A: 界面通量追踪 ----
+
+std::vector<InterfaceFluxRecord> compute_interface_fluxes(
+    const std::vector<Particle>& particles_old,
+    const std::vector<Particle>& particles_new,
+    const double particle_mass,
+    const double time_interval,
+    const DomainConfig& domain,
+    const std::size_t n_interfaces
+) {
+    const double slab_width = domain.extent.x /
+        static_cast<double>(n_interfaces - 1U);
+    const double interface_area = domain.extent.y * domain.extent.z;
+    const double inv_dt = 1.0 / time_interval;
+    const double inv_area = 1.0 / interface_area;
+
+    std::vector<InterfaceFluxRecord> records(n_interfaces);
+    for (std::size_t i = 0; i < n_interfaces; ++i) {
+        records[i].interface = i;
+        records[i].x = static_cast<double>(i) * slab_width;
+    }
+
+    for (std::size_t p = 0; p < particles_old.size(); ++p) {
+        const Particle& old_p = particles_old[p];
+        const Particle& new_p = particles_new[p];
+
+        const std::size_t old_slab = static_cast<std::size_t>(
+            old_p.position.x / slab_width
+        );
+        const std::size_t new_slab = static_cast<std::size_t>(
+            new_p.position.x / slab_width
+        );
+
+        if (old_slab == new_slab) {
+            continue;  // 未穿越任何界面
+        }
+
+        // 粒子穿越了一个或多个 slab 界面
+        const double vx_mid = 0.5 * (old_p.velocity.x + new_p.velocity.x);
+        const double speed_sq = 0.5 * (
+            squared_norm(old_p.velocity) + squared_norm(new_p.velocity)
+        );
+        const double mass = particle_mass;
+
+        // 确定穿越的所有界面
+        const std::size_t lo = std::min(old_slab, new_slab);
+        const std::size_t hi = std::max(old_slab, new_slab);
+        const int direction = (new_slab > old_slab) ? 1 : -1;
+
+        // 对于 lo+1, ..., hi 号界面（interface 号 = slab 右边界）
+        for (std::size_t iface = lo + 1; iface <= hi; ++iface) {
+            if (iface >= n_interfaces) break;
+            const double sign = static_cast<double>(direction);
+            records[iface].mass_flux += sign * mass;
+            records[iface].momentum_x_flux += sign * mass * vx_mid;
+            records[iface].energy_flux += sign * mass * 0.5 * speed_sq;
+        }
+    }
+
+    // 归一化为通量密度
+    for (auto& rec : records) {
+        rec.mass_flux *= inv_dt * inv_area;
+        rec.momentum_x_flux *= inv_dt * inv_area;
+        rec.energy_flux *= inv_dt * inv_area;
+    }
+
+    return records;
+}
+
+InterfaceFluxCsvWriter::InterfaceFluxCsvWriter(
+    const std::filesystem::path& output_directory
+)
+    : path_(output_directory / "interface_fluxes.csv")
+    , stream_(path_)
+{
+    if (!stream_) {
+        throw std::runtime_error("Cannot open " + path_.string());
+    }
+    stream_ << "frame,time,interface,x,"
+            << "mass_flux,momentum_x_flux,energy_flux\n";
+}
+
+void InterfaceFluxCsvWriter::write(
+    const std::vector<InterfaceFluxRecord>& records
+) {
+    for (const auto& rec : records) {
+        stream_ << rec.frame << ','
+                << rec.time << ','
+                << rec.interface << ','
+                << rec.x << ','
+                << rec.mass_flux << ','
+                << rec.momentum_x_flux << ','
+                << rec.energy_flux << '\n';
+    }
+    if (!stream_) {
+        throw std::runtime_error("Failed writing interface flux CSV.");
     }
 }
 
