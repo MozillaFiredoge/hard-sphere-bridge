@@ -96,6 +96,10 @@ void test_loads_repository_configs() {
         particles::load_equilibrium_config(
             source_dir / "configs" / "equilibrium.json"
         );
+    expect_near(shock.transverse_shear_amplitude, 0.0, 0.0,
+                "existing configs default to no transverse shear");
+    expect_true(shock.transverse_shear_mode == 1,
+                "existing configs default to the first shear mode");
     const particles::ParallelWindowScenarioConfig causal_chain =
         particles::load_parallel_window_scenario_config(
             source_dir / "configs" / "causal_chain.json"

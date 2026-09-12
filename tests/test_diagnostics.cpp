@@ -255,12 +255,71 @@ void test_multiscale_layers_share_particle_moments() {
     );
 }
 
+void test_transport_second_moments() {
+    const std::vector<Particle> state{
+        Particle{.position = {0.25, 0.5, 0.5}, .velocity = {1.0, 2.0, 0.0}},
+        Particle{.position = {0.75, 0.5, 0.5}, .velocity = {3.0, -1.0, 0.0}},
+    };
+    const particles::DomainConfig domain{.extent = {2.0, 1.0, 1.0}};
+    particles::DiagnosticsConfig config{};
+    config.macroscopic_x_slabs = 2;
+    const auto frame = particles::measure_multiscale(
+        state, 0.0, 2.0, 1.0, domain, config
+    );
+    const auto& slab = frame.macroscopic_slabs[0];
+    expect_near(slab.velocity_x_squared_sum, 10.0, 0.0, "raw xx moment");
+    expect_near(slab.velocity_x_y_product_sum, -1.0, 0.0, "raw xy moment");
+    expect_near(
+        2.0 * slab.velocity_x_squared_sum -
+            slab.mass_density * slab.bulk_velocity.x * slab.bulk_velocity.x,
+        4.0, 1.0e-14, "centered xx pressure for unit slab volume"
+    );
+    expect_near(
+        2.0 * slab.velocity_x_y_product_sum -
+            slab.mass_density * slab.bulk_velocity.x * slab.bulk_velocity.y,
+        -6.0, 1.0e-14, "xy stress subtracts convective momentum"
+    );
+    expect_near(frame.macroscopic_slabs[1].velocity_x_squared_sum,
+                0.0, 0.0, "empty slab xx moment");
+    expect_near(frame.macroscopic_slabs[1].velocity_x_y_product_sum,
+                0.0, 0.0, "empty slab xy moment");
+}
+
+void test_ballistic_endpoint_flux_signs() {
+    const std::vector<Particle> before{
+        Particle{.position = {0.25, 0.5, 0.5}, .velocity = {1.0, 0.0, 0.0}},
+        Particle{.position = {0.75, 0.5, 0.5}, .velocity = {-1.0, 0.0, 0.0}},
+    };
+    auto after = before;
+    after[0].position.x = 0.75;
+    after[1].position.x = 0.25;
+    const particles::DomainConfig domain{.extent = {1.0, 2.0, 1.0}};
+    const auto flux = particles::compute_interface_fluxes(
+        before, after, 3.0, 0.5, domain, 3
+    );
+    expect_true(flux.size() == 3, "flux interface count");
+    expect_near(flux[1].x, 0.5, 0.0, "middle interface position");
+    expect_near(flux[1].mass_flux, 0.0, 0.0, "opposite mass fluxes cancel");
+    expect_near(flux[1].momentum_x_flux, 6.0, 0.0,
+                "opposite crossings add positive normal momentum");
+    expect_near(flux[1].energy_flux, 0.0, 0.0, "opposite energy fluxes cancel");
+    expect_near(flux[0].momentum_x_flux, 0.0, 0.0, "no left boundary crossing");
+    expect_near(flux[2].momentum_x_flux, 0.0, 0.0, "no right boundary crossing");
+    const auto forward = particles::compute_interface_fluxes(
+        {before[0]}, {after[0]}, 3.0, 0.5, domain, 3
+    );
+    expect_near(forward[1].mass_flux, 3.0, 0.0, "forward mass normalization");
+    expect_near(forward[1].energy_flux, 1.5, 0.0, "forward energy normalization");
+}
+
 }  // namespace
 
 void run_diagnostic_tests() {
     using Test = std::pair<std::string_view, std::function<void()>>;
 
     const std::vector<Test> tests{
+        {"transport second velocity moments", test_transport_second_moments},
+        {"ballistic endpoint flux signs", test_ballistic_endpoint_flux_signs},
         {
             "known equilibrium diagnostics",
             test_known_equilibrium_moments_and_collision_rates,
